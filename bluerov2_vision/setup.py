@@ -31,7 +31,9 @@ setup(
     entry_points={
         'console_scripts': [
             'detection = bluerov2_vision.detection_node:main',
-            'webcam = bluerov2_vision.camera_node:main'
+            'webcam = bluerov2_vision.camera_node:main',
+            'orientation = bluerov2_vision.orientation_node:main',
+            'aruco = bluerov2_vision.aruco_node:main',
         ],
     },
 )

@@ -3,6 +3,10 @@
 # Model confidence threshold (0.0 - 1.0)
 # Lower values detect more objects but with more false positives
 confidence: 0.5
+handle_confidence: 0.5
+
+#handle detection
+handle_detection: true
 
 # IOU threshold for NMS (Non-Maximum Suppression)
 # Controls how much overlap is allowed between detections
@@ -19,4 +23,4 @@ model:
   weights_path: "weights/alex.pt"
   
   # Device: "cpu" or "0" (for GPU)
-  device: 0
+  device: cpu
