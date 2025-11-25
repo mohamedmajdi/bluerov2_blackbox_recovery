@@ -13,9 +13,11 @@ def generate_launch_description():
     pkg_path = get_package_share_directory('bluerov2_bringup')
     teleop_pkg = get_package_share_directory('bluerov2_teleop')
     controller_pkg = get_package_share_directory('bluerov2_controller')
+    searching_pkg = get_package_share_directory('bluerov2_search')
     bringup_launch_dir = os.path.join(pkg_path, 'launch')
 
     param_file_path = os.path.join(pkg_path, 'param', 'startup_param.yaml')
+    searching_param_file_path = os.path.join(searching_pkg, 'param', 'search.yaml')
 
     with_camera_arg = DeclareLaunchArgument(
         'with_camera',
@@ -88,6 +90,13 @@ def generate_launch_description():
         ),
         launch_arguments={'namespace': ns}.items()
     )
+
+    searching_launch = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(searching_pkg, 'launch', 'bluerov2_search_pattern.launch.py')
+        ),
+        launch_arguments={'namespace': ns, 'config':searching_param_file_path}.items()
+    )
     return LaunchDescription([
         namespace_arg,
         with_camera_arg,
@@ -96,6 +105,7 @@ def generate_launch_description():
         video_node,
         startup_node,
         controllers_launch,
+        searching_launch,
         # teleop_launch,
         # mavros_launch,
         # gimbal_launch

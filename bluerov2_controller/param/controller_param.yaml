@@ -1,34 +1,36 @@
 /bluerov2/depth_controller:
   ros__parameters:
     pid:
-      kp: 0.5
-      ki: 0.0
+      kp: 25.0
+      ki: 0.5
       kd: 0.0
-      i_lim: 3.0
+      i_limit: 3.0
     target_depth: 2.0
-    flotability: 3.3
+    # flotability: 3.3
+    flotability: 15.0
     input_topic: "global_position/rel_alt"
     setpoint_topic: "desired_depth"
     output_topic: "controller/heave_force"
     control_rate: 20.0
+    depth_th: 0.2
     hold: False
     enable: True
-    inverted: False
+    inverted: True
 
 
 /bluerov2/yaw_controller:
   ros__parameters:
     pid:
-      kp: 0.3
+      kp: 5.0
       ki: 0.0
-      kd: 0.0
-    target_yaw: 0.785
+      kd: 0.5
+    target_yaw: 3.1415
     input_topic: "/bluerov/imu/data"
     setpoint_topic: "desired_yaw"
     output_topic: "controller/yaw_force"
     control_rate: 20.0
-    hold: True
-    enable: False
+    hold: False
+    enable: True
 
 /bluerov2/pitch_controller:
   ros__parameters:

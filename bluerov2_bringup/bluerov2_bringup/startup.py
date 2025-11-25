@@ -46,6 +46,7 @@ class bluerov2_bringup(Node):
             self.angle_callback,
             10
         )
+
         ##### Publishers #####
         self.pub_camera_anlge = self.create_publisher(MountControl, 'mount_control/command', qos_profile = 10)
         self.pub_msg_override = self.create_publisher(OverrideRCIn, 'rc/override', qos_profile =10)
@@ -102,18 +103,23 @@ class bluerov2_bringup(Node):
         self.yaw_controller_node_name = "yaw_controller"
         self.pitch_controller_node_name = "pitch_controller"
         self.gimbal_node_name = "bluerov2_gimbal"
+        self.serch_node_name = "search_pattern"
+        self.approaching_node_name = "box_approaching"
 
         self.depth_manager = LifecycleManager(self, self.depth_controller_node_name)
         self.yaw_manager = LifecycleManager(self, self.yaw_controller_node_name)
         self.pitch_manager = LifecycleManager(self, self.pitch_controller_node_name)
-
         self.gimbal_manager = LifecycleManager(self, self.gimbal_node_name)
 
+        self.search_manager = LifecycleManager(self, self.serch_node_name)
+        self.approaching_manger = LifecycleManager(self, self.approaching_node_name)
 
         self.depth_manager.configure()
         self.yaw_manager.configure()
         self.pitch_manager.configure()
         self.gimbal_manager.configure()
+        self.search_manager.configure()
+        self.approaching_manger.configure()
 
         self.create_timer(0.2, self.timer_callback)
 
@@ -145,7 +151,7 @@ class bluerov2_bringup(Node):
     def timer_callback(self):
         self.get_mode("mode")
         #### Sending Thruster Commands ####
-        if self.mode == "correction":
+        if not self.mode == "manual":
             self.RC_pwms[0] = self.pitch
             self.RC_pwms[1] = self.roll
             # self.RC_pwms[2] += self.heave - 1500
@@ -159,27 +165,48 @@ class bluerov2_bringup(Node):
             self.RC_pwms[5] = self.sway
         # self.get_logger().info(f"heave pwm: {self.heave}, sent pwm:{self.RC_pwms[2]}")
         self.setOverrideRCIN(self.RC_pwms)
-
+            
         if self.mode_change:
             self.get_logger().info(f"Mode changed to {self.mode}")
             if self.mode == "correction":
+                self.search_manager.deactivate()
+                self.approaching_manger.deactivate()
+
                 self.depth_manager.activate()
                 self.yaw_manager.activate()
                 self.pitch_manager.activate()
+
                 if self.enable_gimbal:
                     self.gimbal_manager.activate()
             elif self.mode == "manual":
                 self.depth_manager.deactivate()
                 self.yaw_manager.deactivate()
                 self.pitch_manager.deactivate()
-                self.heave = 1500
-                self.yaw = 1500
-                self.pitch = 1500
-                self.roll = 1500
-                self.surge = 1500
-                self.sway = 1500
+                self.search_manager.deactivate()
+                self.RC_pwms[0] = 1500
+                self.RC_pwms[1] = 1500
+                self.RC_pwms[2] = 1500
+                self.RC_pwms[3] = 1500
+                self.RC_pwms[4] = 1500
+                self.RC_pwms[5] = 1500
                 if self.enable_gimbal:
                     self.gimbal_manager.deactivate()
+            elif self.mode == "search":
+                self.get_logger().info("No box found, starting search pattern")
+                self.depth_manager.activate()
+                self.yaw_manager.activate()
+                self.pitch_manager.deactivate()
+                self.search_manager.activate()
+
+            elif self.mode == "approaching":
+                self.get_logger().info("Box found, starting approaching behavior")
+                self.depth_manager.activate()
+                self.yaw_manager.activate()
+                self.pitch_manager.deactivate()
+                self.search_manager.deactivate()
+                self.approaching_manger.activate()
+              
+
             self.mode_change = False 
                
         

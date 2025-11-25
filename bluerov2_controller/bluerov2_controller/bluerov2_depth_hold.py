@@ -5,7 +5,7 @@ from rclpy.lifecycle import State
 from rclpy.lifecycle import TransitionCallbackReturn
 from rclpy.executors import SingleThreadedExecutor
 from rclpy.qos import QoSProfile, QoSReliabilityPolicy, QoSHistoryPolicy
-from std_msgs.msg import UInt16,Float64
+from std_msgs.msg import UInt16,Float64, String
 import numpy as np
 from bluerov2_util.PID import PID  # your reusable PID class
 from rcl_interfaces.msg import SetParametersResult
@@ -26,11 +26,12 @@ class Bluerov2DepthControl(LifecycleNode):
         self.declare_parameter('setpoint_topic', 'setpoint')
         self.declare_parameter('output_topic', 'controller/heave_force')
         self.declare_parameter('control_rate', 20.0)
-        self.declare_parameter('pid.i_lim',0.0)
+        self.declare_parameter('pid.i_limit',0.0)
         self.declare_parameter('enable', True)
         self.declare_parameter("hold",False)
         self.declare_parameter("inverted",False)
-
+        self.declare_parameter("status_topic","controller/depth_status")
+        self.declare_parameter("depth_th",0.1)
         self.add_on_set_parameters_callback(self._on_set_parameters)
 
         # Runtime attributes
@@ -49,7 +50,7 @@ class Bluerov2DepthControl(LifecycleNode):
         kp = self.get_parameter('pid.kp').value
         ki = self.get_parameter('pid.ki').value
         kd = self.get_parameter('pid.kd').value
-        i_lim = self.get_parameter('pid.i_lim').value
+        i_limit = self.get_parameter('pid.i_limit').value
         self.goal_depth = self.get_parameter('target_depth').value
         self.flotability = self.get_parameter('flotability').value
         self.get_logger().info(f"flotability:{self.flotability}")
@@ -62,11 +63,13 @@ class Bluerov2DepthControl(LifecycleNode):
         self.enable = self.get_parameter('enable').value
         self.get_logger().info(f"rate:{self.rate}")
         self.inverted = self.get_parameter('inverted').value
-        self._pid = PID(kp, ki, kd, i_lim)  # optional limits
+        self._pid = PID(kp, ki, kd, i_limit)  # optional limits
+        self.depth_status_topoic = self.get_parameter("status_topic").value
         self.get_logger().info(f"output topic: {output_topic}")
+        self.depth_th = self.get_parameter("depth_th").value
 
         self._output_pub = self.create_publisher(Float64, output_topic, 10)
-
+        self._output_status_pub = self.create_publisher(String, self.depth_status_topoic, 10)
         self._input_topic = input_topic
         self.setpoint_topic = setpoint_topic
         
@@ -142,9 +145,9 @@ class Bluerov2DepthControl(LifecycleNode):
             elif p.name == 'pid.kd':
                 self._pid.kd = p.value
                 self.get_logger().info(f"kd updated to: {self._pid.kd}")
-            elif p.name == 'pid.i_lim':
-                self.get_logger().info(f"integration limit updated to: {self._pid.i_lim}")
-                self._pid.i_lim = p.value
+            elif p.name == 'pid.i_limit':
+                self.get_logger().info(f"integration limit updated to: {self._pid.i_limit}")
+                self._pid.i_limit = p.value
             elif p.name == 'hold':
                 self.hold = p.value
                 self.get_logger().info(f"hold mode updated: {self.hold}")
@@ -166,6 +169,10 @@ class Bluerov2DepthControl(LifecycleNode):
                     self.get_logger().info(f"heave thrust inverted")
                 else:
                     self.get_logger().info(f"heave thrust normal")
+
+            elif p.name == 'depth_th':
+                self.depth_th = p.value
+                self.get_logger().info(f"depth threshold updated to: {self.depth_th}")
             return SetParametersResult(successful=True)
 
 
@@ -189,6 +196,16 @@ class Bluerov2DepthControl(LifecycleNode):
             self.target = self.goal_depth
 
         out,dic = self._pid.update(self.target, self._current_depth,feedforward=self.flotability/10) 
+
+        if abs(self._current_depth - self.target) < self.depth_th:
+            self.status = "stable"
+        else:
+            self.status = "diving"
+
+        status_msg = String()
+        status_msg.data = self.status
+        self._output_status_pub.publish(status_msg)
+
         if self.inverted:
             force = out
         else:

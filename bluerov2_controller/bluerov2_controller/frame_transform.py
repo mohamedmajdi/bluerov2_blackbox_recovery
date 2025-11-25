@@ -15,6 +15,7 @@ class ForceController(Node):
         self.declare_parameter('heave_topic', 'heave_force')
         self.declare_parameter('pitch_topic', 'pitch_torque')
         self.declare_parameter('yaw_topic', 'yaw_torque')
+        self.declare_parameter('surge_topic','searching/surge_force')
         self.declare_parameter('imu_topic', 'imu/data')
         self.declare_parameter('output_topic', 'forces_pwm')
         self.declare_parameter('publish_rate', 0.1)  # seconds
@@ -28,6 +29,7 @@ class ForceController(Node):
         heave_topic = self.get_parameter('heave_topic').get_parameter_value().string_value
         pitch_topic = self.get_parameter('pitch_topic').get_parameter_value().string_value
         yaw_topic = self.get_parameter('yaw_topic').get_parameter_value().string_value
+        surge_topic = self.get_parameter('surge_topic').get_parameter_value().string_value
         imu_topic = self.get_parameter('imu_topic').get_parameter_value().string_value
         pwm_topic = self.get_parameter('output_topic').get_parameter_value().string_value
         publish_rate = self.get_parameter('publish_rate').get_parameter_value().double_value
@@ -36,6 +38,7 @@ class ForceController(Node):
         self.create_subscription(Float64, heave_topic, self.heave_callback, 10)
         self.create_subscription(Float64, pitch_topic, self.pitch_callback, 10)
         self.create_subscription(Float64, yaw_topic, self.yaw_callback, 10)
+        self.create_subscription(Float64, surge_topic, self.surge_callback, 10)
         self.create_subscription(Imu, imu_topic, self.imu_callback, qos_profile= qos_profile)
 
         # Publisher
@@ -43,6 +46,7 @@ class ForceController(Node):
 
         # Store latest values
         self.heave = 0.0
+        self.surge = 0.0
         self.pitch_torque = 0.0
         self.yaw_torque = 0.0
         self.roll = 0.0
@@ -63,6 +67,9 @@ class ForceController(Node):
 
     def yaw_callback(self, msg):
         self.yaw_torque = msg.data
+
+    def surge_callback(self, msg):
+        self.surge = msg.data
 
     def imu_callback(self, msg: Imu):
         q = msg.orientation
@@ -88,6 +95,11 @@ class ForceController(Node):
         torques_robot = np.dot(R, forces_ned[3:6])
         forces_robot = np.hstack([lin_forces_robot, torques_robot])
 
+
+        ###### for pattern search #####
+        forces_robot[0] += self.surge
+        ###############################
+        
         # self.get_logger().info(f"force:{forces_robot}")
 
         # Convert to PWM
