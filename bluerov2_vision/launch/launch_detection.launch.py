@@ -20,11 +20,4 @@ def generate_launch_description():
             name='orientation_node',
             output='screen'
         ),
-        # Start aruco detection node
-        Node(
-            package='bluerov2_vision',
-            executable='aruco',
-            name='aruco_detection_node',
-            output='screen'
-        ),
     ])
