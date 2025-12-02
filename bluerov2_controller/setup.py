@@ -27,6 +27,7 @@ setup(
                             'bluerov2_yaw_hold = bluerov2_controller.bluerov2_yaw_hold:main',
                             'bluerov2_pitch_controller = bluerov2_controller.bluerov2_pitch_controller:main',
                             'bluerov2_Vision_Controller = bluerov2_controller.bluerov2_Vision_Controller:main',
+                            'bluerov2_Vision_Controller_V2 = bluerov2_controller.bluerov2_Vision_Controller_V2:main',
                            ],
     },
 )
