@@ -1,0 +1,35 @@
+/**:
+  ros__parameters:
+    # Desired point parameters
+    desired_point_x: -1.0  # -1 = auto image center
+    desired_point_y: 300.0  # -1 = auto image center
+    desired_point_z: 0.5
+    
+    # Control gains [surge, sway, heave, yaw]
+    gain_surge: 0.05
+    gain_sway: 0.3
+    gain_heave: 16.3
+    gain_yaw: 3.5
+    
+    # Velocity limits
+    v_linear_max: 0.2
+    v_angular_max: 0.4
+    
+    # Floatability compensation
+    floatability: -0.125
+    
+    # Sign inversion flags
+    invert_surge: false
+    invert_sway: false
+    invert_heave: true
+    invert_yaw: true
+    
+    # Control enable/disable
+    enable_visual_servoing: false
+    
+    # Tracking options
+    track_handle: false
+    enable_of_tracking: true
+    
+    # NEW: Bringup mode
+    send_to_bringup: false
