@@ -47,6 +47,13 @@ class bluerov2_bringup(Node):
             10
         )
 
+        self.servoing_sub = self.create_subscription(
+            UInt16MultiArray,
+            'controller/pwm_servoing',
+            self.set_servoing_pwm,
+            qos_profile=qos_profile
+        )
+
         ##### Publishers #####
         self.pub_camera_anlge = self.create_publisher(MountControl, 'mount_control/command', qos_profile = 10)
         self.pub_msg_override = self.create_publisher(OverrideRCIn, 'rc/override', qos_profile =10)
@@ -130,7 +137,7 @@ class bluerov2_bringup(Node):
         self.last_angle_deg = 0.0
 
         # Timer to publish TF at 10 Hz
-        self.timer = self.create_timer(0.1, self.publish_tf)
+        # self.timer = self.create_timer(0.1, self.publish_tf)
 
 
    
@@ -148,10 +155,13 @@ class bluerov2_bringup(Node):
     def set_controller_pwm(self,msg):
         self.surge, self.sway, self.heave, self.roll, self.pitch, self.yaw = msg.data
 
+    def set_servoing_pwm(self,msg):
+        self.surge_servoing, self.sway_servoing, self.heave_servoing, self.roll_servoing, self.pitch_servoing, self.yaw_servoing = msg.data
+
     def timer_callback(self):
         self.get_mode("mode")
         #### Sending Thruster Commands ####
-        if not self.mode == "manual":
+        if self.mode == "correction" or self.mode == "approaching" or self.mode == "search":
             self.RC_pwms[0] = self.pitch
             self.RC_pwms[1] = self.roll
             # self.RC_pwms[2] += self.heave - 1500
@@ -165,7 +175,20 @@ class bluerov2_bringup(Node):
             self.RC_pwms[5] = self.sway
         # self.get_logger().info(f"heave pwm: {self.heave}, sent pwm:{self.RC_pwms[2]}")
         self.setOverrideRCIN(self.RC_pwms)
-            
+
+        if self.mode == "servoing":
+
+            self.RC_pwms[0] = self.pitch_servoing
+            self.RC_pwms[1] = self.roll_servoing
+            # self.RC_pwms[2] += self.heave - 1500
+            # self.RC_pwms[3] += self.yaw - 1500
+            # self.RC_pwms[4] += self.surge - 1500
+            # self.RC_pwms[5] += self.sway - 1500
+
+            self.RC_pwms[2] = self.heave_servoing
+            self.RC_pwms[3] = self.yaw_servoing
+            self.RC_pwms[4] = self.surge_servoing
+            self.RC_pwms[5] = self.sway_servoing
         if self.mode_change:
             self.get_logger().info(f"Mode changed to {self.mode}")
             if self.mode == "correction":

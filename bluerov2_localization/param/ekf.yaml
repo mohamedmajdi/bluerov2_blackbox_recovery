@@ -2,18 +2,19 @@ bluerov2:
   ekf_filter_node:
     ros__parameters:
 
-      frequency: 30.0
-      sensor_timeout: 0.1
+      frequency: 5.0
+      sensor_timeout: 1.0
 
-      two_d_mode: false
 
       # ----- Frames -----
-      map_frame: "ned"
       odom_frame: "odom"
       base_link_frame: "base_link"
       world_frame: "ned"
+      map_frame: "ned"
+      two_d_mode: false
 
       publish_tf: true
+
 
       # -----------------------------
       #  INPUT 1: CAMERA ODOMETRY
@@ -21,14 +22,14 @@ bluerov2:
       pose0: "aruco_odom"
       pose0_config: [
         true,  true,  true,
-        true,  true,  true,
+        false,  false,  false,
         false, false, false,
         false, false, false
       ]
       pose0_differential: false
       pose0_relative: false
-      pose0_pose_rejection_threshold: 5.0
-      pose0_twist_rejection_threshold: 3.0
+      pose0_pose_rejection_threshold: 50.0
+      pose0_twist_rejection_threshold: 50.0
 
       # -----------------------------
       #  INPUT 2: IMU
@@ -43,9 +44,10 @@ bluerov2:
       imu0_differential: false
       imu0_relative: false
       imu0_remove_gravitational_acceleration: true
-      imu0_pose_rejection_threshold: 0.4
-      imu0_twist_rejection_threshold: 0.4
-      imu0_linear_acceleration_rejection_threshold: 2.0
+      imu0_pose_rejection_threshold: 50.0
+      imu0_twist_rejection_threshold: 50.0
+      imu0_linear_acceleration_rejection_threshold: 50.0
+      # imu0_reliability: best_effort
 
       # -----------------------------
       # INPUT 3: DEPTH ODOMETRY
@@ -57,26 +59,26 @@ bluerov2:
         false, false, false,
         false, false, false
       ]
-      pose1_pose_rejection_threshold: 3.0
+      pose1_pose_rejection_threshold: 50.0
       pose1_differential: false
       pose1_relative: false
       # -----------------------------
       # INPUT 4: DEAD RECKONING ODOMETRY
       # -----------------------------
-      odom2: "dead_reckoning_odom"
-      odom2_config: [
-        true,  true,  false,   # x, y, z
-        false, false, true,    # roll, pitch, yaw
-        false, false, false,   # vx, vy, vz
-        true,  true,  true     # wx, wy, wz
+      odom0: "dead_reckoning_odom"
+      odom0_config: [
+        false,  false,  false,   # x, y, z
+        false, false, false,    # roll, pitch, yaw
+        true, true, false,   # vx, vy, vz
+        false,  false,  false     # wx, wy, wz
       ]
-      odom2_differential: True
-      odom2_relative: True
-      odom2_pose_rejection_threshold: 4.0
-      odom2_twist_rejection_threshold: 3.0
+      odom0_differential: true
+      odom0_relative: false
+      odom0_pose_rejection_threshold: 50.0
+      odom0_twist_rejection_threshold: 50.0
 
       # -----------------------------
       # OUTPUT
       # -----------------------------
       print_diagnostics: true
-      debug: false
+      debug: true

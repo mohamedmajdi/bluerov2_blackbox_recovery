@@ -76,13 +76,13 @@ class GamepadTelop(Node):
         self.cmd_subscriber  # prevent unused variable warning
 
        # Subscription
-        # self.sub_camera_angle = self.create_subscription(
-        #     MountControl,  # replace MountStatus
-        #     'mount_control/status',
-        #     self.get_camera_angle,
-        #     qos_profile= qos_profile
-        # )
-        # self.sub_camera_angle  # prevent unused variable warning
+        self.sub_camera_angle = self.create_subscription(
+            MountControl,  # replace MountStatus
+            'mount_control/status',
+            self.get_camera_angle,
+            qos_profile= qos_profile
+        )
+        self.sub_camera_angle  # prevent unused variable warning
 
     def get_camera_angle(self, msg):
         """
@@ -251,10 +251,10 @@ class GamepadTelop(Node):
 
     def velCallback(self, cmd_vel):
         ''' Used in manual mode to read the values of the analog and map it pwm then send it the thrusters'''
-        # if (self.mode != "manual"):
-        #     return
-        # else:
-        self.get_logger().info("Sending...")
+        if (self.mode != "manual"):
+            return
+        else:
+            self.get_logger().info("Sending...")
 
         
         # Extract cmd_vel message
@@ -282,14 +282,14 @@ class GamepadTelop(Node):
 
         # Fill it with your channel data in order
         msg_array.data = [
-            int(channel_pitch),
-            int(channel_roll),
-            int(channel_throttle),
-            int(channel_yaw),
-            int(channel_forward),
-            int(channel_lateral),
-            1500,
-            1500
+            int(channel_pitch),    # Channel 0
+            int(channel_roll),     # Channel 1
+            int(channel_throttle), # Channel 2
+            int(channel_yaw),      # Channel 3
+            int(channel_forward),  # Channel 4
+            int(channel_lateral),  # Channel 5
+            1500,                        # Channel 6 (camera pan)
+            1500                         # Channel 7 (camera tilt)
         ]
         self.pub_msg_override.publish(msg_array)
 

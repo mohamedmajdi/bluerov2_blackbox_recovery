@@ -35,7 +35,7 @@ setup(
             'visual_odom = bluerov2_localization.visual_odom:main',
             'box_localization = bluerov2_localization.box_localization:main',
             'depth2odom = bluerov2_localization.depth2odom:main',
-            'dead_reckoning = bluerov2_localization.dead_reckoning:main'
+            'dead_reckoning = bluerov2_localization.dead_reckoning:main',
         ],
     },
 )

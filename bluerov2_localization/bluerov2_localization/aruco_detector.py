@@ -94,9 +94,9 @@ class ArucoDetectorNode(Node):
                         tvec = tvecs[i][0]
                         rvec = rvecs[i][0]
 
-                        if tvec[2] < 0.0:
-                            tvec[1] = -tvec[1]
-                            tvec[2] = -tvec[2]
+                        # if tvec[2] < 0.0:
+                        #     tvec[1] = -tvec[1]
+                        #     tvec[2] = -tvec[2]
 
                         rot_matrix, _ = cv2.Rodrigues(rvec)
                         quat = self.rotation_matrix_to_quaternion(rot_matrix)

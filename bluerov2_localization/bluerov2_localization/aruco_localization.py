@@ -33,7 +33,7 @@ class CameraPoseFromMarkers(Node):
         # Smoothing variables
         self.last_pos = None
         self.last_quat = None
-        self.alpha_pos = 0.35
+        self.alpha_pos = 0.25
         self.alpha_rot = 0.35
 
         self.missed_frames = 0

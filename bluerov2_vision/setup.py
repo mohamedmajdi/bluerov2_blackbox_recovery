@@ -34,6 +34,7 @@ setup(
             'webcam = bluerov2_vision.camera_node:main',
             'orientation = bluerov2_vision.orientation_node:main',
             'aruco = bluerov2_vision.aruco_node:main',
+            'box_location = bluerov2_vision.box_location:main',
         ],
     },
 )

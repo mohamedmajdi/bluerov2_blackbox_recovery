@@ -5,16 +5,48 @@ from nav_msgs.msg import Odometry
 import numpy as np
 from mavros_msgs.msg import RCOut
 from tf_transformations import euler_from_quaternion
-
+from rcl_interfaces.msg import SetParametersResult
+from sensor_msgs.msg import Imu
+from rclpy.qos import QoSProfile, QoSReliabilityPolicy, QoSHistoryPolicy
 
 class BlueROVDeadReckoning(Node):
     def __init__(self):
         super().__init__('bluerov_dead_reckoning')
 
+        qos_profile = QoSProfile(
+            reliability=QoSReliabilityPolicy.BEST_EFFORT,
+            history=QoSHistoryPolicy.KEEP_LAST,
+            depth=1
+        )
+
+
+        self.declare_parameter('T1_inverted', True)
+        self.declare_parameter('T2_inverted', True)
+        self.declare_parameter('T3_inverted', False)
+        self.declare_parameter('T4_inverted', False)
+        self.declare_parameter('T5_inverted', False)
+        self.declare_parameter('T6_inverted', False)
+        self.declare_parameter('T7_inverted', False)
+        self.declare_parameter('T8_inverted', False)
+
+        self.T1_inverted = self.get_parameter('T1_inverted').get_parameter_value().bool_value
+        self.T2_inverted = self.get_parameter('T2_inverted').get_parameter_value().bool_value
+        self.T3_inverted = self.get_parameter('T3_inverted').get_parameter_value().bool_value
+        self.T4_inverted = self.get_parameter('T4_inverted').get_parameter_value().bool_value
+        self.T5_inverted = self.get_parameter('T5_inverted').get_parameter_value().bool_value
+        self.T6_inverted = self.get_parameter('T6_inverted').get_parameter_value().bool_value
+        self.T7_inverted = self.get_parameter('T7_inverted').get_parameter_value().bool_value
+        self.T8_inverted = self.get_parameter('T8_inverted').get_parameter_value().bool_value
+
+
+        
+        self.add_on_set_parameters_callback(self._on_set_parameters)
+
+
         # Robot parameters
         self.m = 11.5
         self.W = 112.8
-        self.B = 114.8
+        self.B = 113.8
         self.r_cb = np.array([0, 0, 0])
         self.r_cg = np.array([0, 0, 0.02])
         self.I = np.diag([0.16, 0.16, 0.16])
@@ -40,8 +72,8 @@ class BlueROVDeadReckoning(Node):
         ])
 
         # Initial state
-        # self.eta = np.array([0.0, 7.5,0.0,0.0,0.0,0.0])  # [x y z roll pitch yaw]
-        self.eta = np.zeros(6)
+        self.eta = np.array([0.0, 7.5,0.0,0.0,0.0,0.0])  # [x y z roll pitch yaw]
+        # self.eta = np.zeros(6)
         self.v = np.zeros(6)    # [u v w p q r]
 
         # Thruster forces (replace with real input)
@@ -52,14 +84,17 @@ class BlueROVDeadReckoning(Node):
 
         #subscribers
         self.pwm_sub = self.create_subscription(RCOut,'rc/out',self.cal_thrust,10)
+        # self.imu_sub = self.create_subscription(Imu,'imu/data',self.cal_angle,qos_profile=qos_profile)
         # self.filtered_sub = self.create_subscription(Odometry,'odometry/filtered',self.update_pose,10)
         # Timer 10 Hz
         self.timer = self.create_timer(0.1, self.timer_callback)
 
         # HIGH covariance (low confidence)
-        self.high_cov = 0.5
-        self.pose_cov = (np.eye(6) * self.high_cov).flatten().tolist()
-        self.twist_cov = (np.eye(6) * self.high_cov).flatten().tolist()
+        self.cov = 0.01
+        self.pose_cov = (np.eye(6) * self.cov).flatten().tolist()
+        self.twist_cov = (np.eye(6) * self.cov).flatten().tolist()
+
+        self.i = 1
 
     # def update_pose(self,msg):
     #     f_x = msg.pose.pose.position.x
@@ -85,15 +120,57 @@ class BlueROVDeadReckoning(Node):
     #     self.eta = [f_x,f_y,f_z,roll,pitch,yaw]
     #     self.v = [u,v,w,p,q,r]
 
+    def cal_angle(self,msg):
+        qx = msg.pose.pose.orientation.x
+        qy = msg.pose.pose.orientation.y
+        qz = msg.pose.pose.orientation.z
+        qw = msg.pose.pose.orientation.w
+
+        # Convert quaternion -> roll pitch yaw
+        roll, pitch, yaw = euler_from_quaternion([qx, qy, qz, qw])
+
+        self.eta[3] = roll
+        self.eta[4] = pitch
+        self.eta[5] = yaw
+
+    def _on_set_parameters(self, params):
+        for p in params:
+            if p.name == 'T1_inverted':
+                self.T1_inverted = p.value
+                self.get_logger().info(f"Thruster 1 inversion updated to: {self.T1_inverted}")
+            elif p.name == 'T2_inverted':
+                self.T2_inverted = p.value
+                self.get_logger().info(f"Thruster 2 inversion updated to: {self.T2_inverted}")
+            elif p.name == 'T3_inverted':
+                self.T3_inverted = p.value
+                self.get_logger().info(f"Thruster 2 inversion updated to: {self.T3_inverted}")
+            elif p.name == 'T4_inverted':
+                self.T4_inverted = p.value
+                self.get_logger().info(f"Thruster 2 inversion updated to: {self.T4_inverted}")
+            elif p.name == 'T5_inverted':
+                self.T5_inverted = p.value
+                self.get_logger().info(f"Thruster 2 inversion updated to: {self.T5_inverted}")
+            elif p.name == 'T6_inverted':
+                self.T6_inverted = p.value
+                self.get_logger().info(f"Thruster 2 inversion updated to: {self.T6_inverted}")
+            elif p.name == 'T7_inverted':
+                self.T7_inverted = p.value
+                self.get_logger().info(f"Thruster 2 inversion updated to: {self.T7_inverted}")
+            elif p.name == 'T8_inverted':
+                self.T8_inverted = p.value
+                self.get_logger().info(f"Thruster 2 inversion updated to: {self.T8_inverted}")
+        return SetParametersResult(successful=True)
+
+
     def cal_thrust(self,msg):
-        self.tau_thrusters[0] = -self._pwm_to_force(msg.channels[0],inverted= True)
-        self.tau_thrusters[1] = -self._pwm_to_force(msg.channels[1],inverted=True)
-        self.tau_thrusters[2] = -self._pwm_to_force(msg.channels[2])
-        self.tau_thrusters[3] = -self._pwm_to_force(msg.channels[3])
-        self.tau_thrusters[4] = self._pwm_to_force(msg.channels[4])
-        self.tau_thrusters[5] = self._pwm_to_force(msg.channels[5])
-        self.tau_thrusters[6] = self._pwm_to_force(msg.channels[6])
-        self.tau_thrusters[7] = self._pwm_to_force(msg.channels[7])
+        self.tau_thrusters[0] = -self._pwm_to_force(msg.channels[0],inverted= self.T1_inverted)
+        self.tau_thrusters[1] = -self._pwm_to_force(msg.channels[1],inverted=self.T2_inverted)
+        self.tau_thrusters[2] = -self._pwm_to_force(msg.channels[2],inverted=self.T3_inverted)
+        self.tau_thrusters[3] = -self._pwm_to_force(msg.channels[3],inverted=self.T4_inverted)
+        self.tau_thrusters[4] = self._pwm_to_force(msg.channels[4],inverted=self.T5_inverted)
+        self.tau_thrusters[5] = self._pwm_to_force(msg.channels[5],inverted=self.T6_inverted)
+        self.tau_thrusters[6] = self._pwm_to_force(msg.channels[6],inverted=self.T7_inverted)
+        self.tau_thrusters[7] = self._pwm_to_force(msg.channels[7],inverted=self.T8_inverted)
 
         # self.get_logger().info(f"thrust force:{self.tau_thrusters}")
 
@@ -101,6 +178,12 @@ class BlueROVDeadReckoning(Node):
 
     def timer_callback(self):
         dt = 0.1
+
+        if self.i < 1000:
+            self.cov = 0.01
+            self.pose_cov = (np.eye(6) * self.cov).flatten().tolist()
+            self.twist_cov = (np.eye(6) * self.cov).flatten().tolist()
+            self.i += 1
 
         # Restoring forces
         phi, theta, psi = self.eta[3:6]
@@ -130,6 +213,7 @@ class BlueROVDeadReckoning(Node):
         # Integrate
         eta_dot = self.eta_dot_from_body_vel(self.eta,self.v)
         self.eta += eta_dot * dt
+        # self.eta[0:3] += eta_dot[0:3] * dt
         self.v += v_dot * dt
         
 

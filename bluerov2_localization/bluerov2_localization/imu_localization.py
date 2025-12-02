@@ -17,7 +17,7 @@ class ImuLocalization(Node):
         if self.sim:
             topic_name = "/bluerov/imu/data"
         else:
-            topic_name = "bluerov2/imu/data"
+            topic_name = "/bluerov2/imu/data"
 
         self.get_logger().info(f"localization node started subscribing to {topic_name}")
         qos_profile = QoSProfile(
@@ -63,8 +63,8 @@ class ImuLocalization(Node):
         # Publish odometry
         odom_msg = Odometry()
         odom_msg.header.stamp = msg.header.stamp
-        odom_msg.header.frame_id = 'odom'
-        odom_msg.child_frame_id = 'base_link'
+        odom_msg.header.frame_id = 'base_link'
+        odom_msg.child_frame_id = 'imu_link'
 
         # Pose
         odom_msg.pose.pose.position = Point(x=float(self.pos[0]), y=float(self.pos[1]), z=float(self.pos[2]))

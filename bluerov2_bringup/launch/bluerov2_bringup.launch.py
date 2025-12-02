@@ -97,6 +97,13 @@ def generate_launch_description():
         ),
         launch_arguments={'namespace': ns, 'config':searching_param_file_path}.items()
     )
+
+    approaching_launch = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(searching_pkg, 'launch', 'bluerov2_approaching.launch.py')
+        ),
+        launch_arguments={'namespace': ns,'config':searching_param_file_path}.items()
+    )
     return LaunchDescription([
         namespace_arg,
         with_camera_arg,
@@ -106,6 +113,7 @@ def generate_launch_description():
         startup_node,
         controllers_launch,
         searching_launch,
+        approaching_launch,
         # teleop_launch,
         # mavros_launch,
         # gimbal_launch

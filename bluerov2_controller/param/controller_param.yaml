@@ -25,7 +25,7 @@
       ki: 0.0
       kd: 0.5
     target_yaw: 3.1415
-    input_topic: "/bluerov/imu/data"
+    input_topic: "imu/data"
     setpoint_topic: "desired_yaw"
     output_topic: "controller/yaw_force"
     control_rate: 20.0

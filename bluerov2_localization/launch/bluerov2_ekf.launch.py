@@ -21,7 +21,7 @@ def generate_launch_description():
             namespace=namespace,
             output='screen'
         ),
-
+        # Dead Reckoning node
         Node(
             package='bluerov2_localization',
             executable='dead_reckoning',
@@ -29,6 +29,14 @@ def generate_launch_description():
             namespace=namespace,
             output='screen'
         ),
+        # imu node 
+        # Node(
+        #     package='bluerov2_localization',
+        #     executable='imu_localization',
+        #     name='imu_localization',
+        #     namespace=namespace,
+        #     output='screen'
+        # ),
 
         # EKF node from robot_localization
         Node(

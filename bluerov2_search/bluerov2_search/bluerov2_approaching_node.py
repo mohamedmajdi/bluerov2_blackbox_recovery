@@ -52,7 +52,7 @@ class Boxapproaching(LifecycleNode):
         output_yaw_topic = self.get_parameter('output_yaw_topic').value
         output_surge_topic = self.get_parameter('output_surge_topic').value
 
-        self.box_pose = [1.0, 1.0]
+        self.box_pose = [0.85, 1.077]
         if self.stonefish:
             self.box_pose[0] = 5.5 - self.box_pose[0]
             self.box_pose[1] = 3.5 - self.box_pose[1]

@@ -11,6 +11,8 @@ from rcl_interfaces.msg import SetParametersResult
 from nav_msgs.msg import Odometry
 import math 
 
+from geometry_msgs.msg import PoseStamped
+
 class SearchingPattern(LifecycleNode):
 
     def __init__(self):
@@ -36,6 +38,7 @@ class SearchingPattern(LifecycleNode):
         self.declare_parameter('desired_depth',2.5)
         self.declare_parameter('depth_topic','desired_depth')
         self.declare_parameter('depth_status_topic','controller/depth_status')
+        self.declare_parameter('box_detection_topic','/box_pose')
 
         self.add_on_set_parameters_callback(self._on_set_parameters)
 
@@ -71,7 +74,7 @@ class SearchingPattern(LifecycleNode):
         self.desired_depth = self.get_parameter('desired_depth').value
         self.depth_topic = self.get_parameter('depth_topic').value
 
-
+        self.box_detection_topic = self.get_parameter('box_detection_topic').value
         self.waypoints = []
         self.i = 0
         self.lawmower_pattern()
@@ -91,10 +94,18 @@ class SearchingPattern(LifecycleNode):
 
         self.depth_stable = False 
         self.prev_stable = False
-
+        self.box_positions =[]
+        
         return TransitionCallbackReturn.SUCCESS
 
     def on_activate(self, state: State) -> TransitionCallbackReturn:
+        self.current_wp_idx = 0
+        self.pose = None
+
+        self.depth_stable = False 
+        self.prev_stable = False
+        self.box_positions =[]
+        self.state = 'searching'
         self.get_logger().info("Activating search node...")
 
         qos_profile = QoSProfile(
@@ -114,6 +125,13 @@ class SearchingPattern(LifecycleNode):
             String,
             self.depth_status_topic,
             self._get_depth_status,
+            qos_profile=qos_profile
+        )
+
+        self.box_pos_sub = self.create_subscription(
+            PoseStamped,
+            self.box_detection_topic,
+            self.box_detection_callback,
             qos_profile=qos_profile
         )
 
@@ -138,8 +156,13 @@ class SearchingPattern(LifecycleNode):
             self.destroy_subscription(self.depth_status_topic)
             self.depth_status_topic = None
 
+        if hasattr(self, "box_pos_sub") and self.box_pos_sub is not None:
+            self.destroy_subscription(self.box_pos_sub)
+            self.box_pos_sub = None
+
         self.send_stop_force()
         return TransitionCallbackReturn.SUCCESS
+    
 
     def on_cleanup(self, state: State) -> TransitionCallbackReturn:
         self.get_logger().info("Cleaning up Search node...")
@@ -214,6 +237,10 @@ class SearchingPattern(LifecycleNode):
             return SetParametersResult(successful=True)
 
 
+    def box_detection_callback(self, msg: PoseStamped):
+        # Process the box position message
+        self.get_logger().info(f"detected box position x: {msg.pose.position.x}, y: {msg.pose.position.y}, z: {msg.pose.position.z}")
+        self.box_positions.append([msg.pose.position.x, msg.pose.position.y, msg.pose.position.z])
 
     def lawmower_pattern(self):
         y = self.y_min
@@ -311,7 +338,15 @@ class SearchingPattern(LifecycleNode):
 
         # if finished all waypoints, stop
         if self.current_wp_idx >= len(self.waypoints) - 1:
-            self.get_logger().info("Completed all waypoints. Stopping.")
+            if self.state != 'completed':
+                self.get_logger().info("Completed all waypoints. Stopping.")
+                # get box position as average of detected positions
+                if len(self.box_positions) > 0:
+                    box_positions_array = np.array(self.box_positions)
+                    avg_x = np.mean(box_positions_array[:,0])
+                    avg_y = np.mean(box_positions_array[:,1])
+                    self.get_logger().info(f"Average detected box position: x={avg_x}, y={avg_y}")
+                self.state = 'completed'
             self.send_stop_force()
             return
 
@@ -347,11 +382,18 @@ class SearchingPattern(LifecycleNode):
                 seg_len = stats['L']
                 ey = stats['ey']
                 # log small summary
-                self.get_logger().debug(f"Switched to segment {self.current_wp_idx}: P1={P1} P2={P2}")
+                self.get_logger().info(f"Switched to segment {self.current_wp_idx}: P1={P1} P2={P2}")
             else:
                 # last segment ended
-                self.get_logger().info("Reached final segment end. Stopping.")
-                self.send_stop_force()
+                if self.state != 'completed':
+                    self.get_logger().info("Reached final segment end. Stopping.")
+                    if len(self.box_positions) > 0:
+                        box_positions_array = np.array(self.box_positions)
+                        avg_x = np.mean(box_positions_array[:,0])
+                        avg_y = np.mean(box_positions_array[:,1])
+                        self.get_logger().info(f"Average detected box position: x={avg_x}, y={avg_y}")
+                        self.state = 'completed'
+                    self.send_stop_force()
                 return
             
 

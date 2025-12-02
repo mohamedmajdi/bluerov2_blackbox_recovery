@@ -16,12 +16,12 @@ def generate_launch_description():
     )
     camera_tf_arg = DeclareLaunchArgument(
         'camera_tf',
-        default_value='false',
+        default_value='true',
         description='Use defult tf between camera and base_link'
     )
 
     pkg_path = get_package_share_directory('bluerov2_localization')
-    param_file_path = os.path.join(pkg_path, 'param', 'camera_calibration_19_11.npz')
+    param_file_path = os.path.join(pkg_path, 'param', 'camera_calb_20_11.npz')
 
     calb = LaunchConfiguration('calb')
     calb_arg = DeclareLaunchArgument(
