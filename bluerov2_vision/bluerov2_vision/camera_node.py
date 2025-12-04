@@ -14,7 +14,7 @@ class BlueROV2DummyCameraNode(Node):
         super().__init__('bluerov2_dummy_camera_node')
 
         # Publisher for camera topic
-        self.publisher_ = self.create_publisher(Image, 'camera', 10)
+        self.publisher_ = self.create_publisher(Image, 'camera/image', 10)
         self.cv_bridge = CvBridge()
 
         # Open webcam (index 0 = default camera)

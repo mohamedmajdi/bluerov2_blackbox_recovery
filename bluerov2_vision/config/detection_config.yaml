@@ -17,13 +17,14 @@ threshold: 0.45
 
 # Camera resolution (width, height)
 camera_resolution:
-  width: 640
-  height: 480
+  width: 1920
+  height: 1080
 
 # Model settings
 model:
   # Path to model weights (relative to script directory)
-  weights_path: "weights/Mk7.pt"
+  weights_path: "weights/Mk1.1.pt"
   
   # Device: "cpu" or "0" (for GPU)
   device: 0
+ 

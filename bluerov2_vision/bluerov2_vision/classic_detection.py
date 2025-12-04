@@ -35,7 +35,7 @@ class YOLOv11DetectionNode(Node):
         # Create subscriber for camera input
         self.camera_subscription = self.create_subscription(
             Image,
-            'camera',
+            'camera/image',
             self.camera_callback,
             10  # QoS queue size
         )

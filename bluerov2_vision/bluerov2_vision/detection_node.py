@@ -41,14 +41,14 @@ class YOLOv11DetectionNode(Node):
         # Add parameter callback for dynamic updates
         self.add_on_set_parameters_callback(self.parameters_callback)
         
-        # Load YOLOv11 model
+        # Load YOLO model
         self.model = self._load_model()
         self.get_logger().info("YOLOv11 model loaded successfully")
         
         # Create subscriber for camera input
         self.camera_subscription = self.create_subscription(
             Image,
-            'camera',
+            'camera/image',
             self.camera_callback,
             10  # QoS queue size
         )
@@ -126,6 +126,24 @@ class YOLOv11DetectionNode(Node):
             description='Show camera window with detections (true/false)'
         )
         self.declare_parameter('show_camera_window', self.config['show_camera_window'], show_camera_window_descriptor)
+        
+        # Validate Handle Position (Boolean)
+        validate_handle_descriptor = ParameterDescriptor(
+            description='If true, checks if handle is physically close/inside the blackbox'
+        )
+        # using .get() with default False to prevent crash if not in YAML
+        self.declare_parameter('validate_handle_position', 
+                               self.config.get('validate_handle_position', False), 
+                               validate_handle_descriptor)
+
+        # Handle Position Tolerance (Float percentage, e.g., 0.2 = 20% expanison)
+        tolerance_pos_descriptor = ParameterDescriptor(
+            description='Percentage expansion of blackbox area to search for handle (0.0 - 1.0)',
+            floating_point_range=[FloatingPointRange(from_value=0.0, to_value=2.0, step=0.05)]
+        )
+        self.declare_parameter('handle_position_tolerance', 
+                               self.config.get('handle_position_tolerance', 0.2), 
+                               tolerance_pos_descriptor)
 
         self.get_logger().info("ROS parameters declared with range constraints")
 
@@ -136,13 +154,18 @@ class YOLOv11DetectionNode(Node):
         self.threshold = self.get_parameter('threshold').value
         self.handle_detection = self.get_parameter('handle_detection').value
         self.device = self.get_parameter('device').value
-        
+        self.validate_handle_position = self.get_parameter('validate_handle_position').value
+        self.handle_position_tolerance = self.get_parameter('handle_position_tolerance').value
+
+
         self.get_logger().info(
             f"Parameters updated - confidence: {self.confidence}, "
             f"handle_confidence: {self.handle_confidence}, "
             f"threshold: {self.threshold}, "
             f"handle_detection: {self.handle_detection}, "
             f"device: {self.device}"
+            f"Spatial Constraints - Validate: {self.validate_handle_position}, "
+            f"Tolerance: {self.handle_position_tolerance}"
         )
 
     def parameters_callback(self, params):
@@ -176,7 +199,12 @@ class YOLOv11DetectionNode(Node):
                 self.get_logger().info(f"Updated device to {self.device}")
                 # Note: changing device requires reloading the model
                 self.get_logger().warn("Device change requires node restart to take effect")
-        
+            elif param.name == 'validate_handle_position':
+                self.validate_handle_position = param.value
+                self.get_logger().info(f"Updated validate_handle_position to {self.validate_handle_position}")
+            elif param.name == 'handle_position_tolerance':
+                self.handle_position_tolerance = param.value
+                self.get_logger().info(f"Updated handle_position_tolerance to {self.handle_position_tolerance}")
         return SetParametersResult(successful=True)
 
     def _load_model(self) -> YOLO:
@@ -285,53 +313,99 @@ class YOLOv11DetectionNode(Node):
             self.get_logger().error(f"Error processing camera frame: {e}")
 
     def _filter_detections(self, result, class_names):
-        """Filter detections based on confidence thresholds and handle_detection flag"""
-        if result.boxes is None or len(result.boxes) == 0:
-            return []
+            """
+            Filter detections based on:
+            1. Confidence thresholds
+            2. Handle detection enabled flag
+            3. (NEW) Spatial relationship: Handle must be inside/near Blackbox
+            """
+            if result.boxes is None or len(result.boxes) == 0:
+                return []
 
-        # Collect all detections with their information
-        all_detections = []
-        
-        for box in result.boxes:
-            x_min, y_min, x_max, y_max = box.xyxy[0].cpu().numpy()
-            x_min, y_min, x_max, y_max = int(x_min), int(y_min), int(x_max), int(y_max)
-            
-            class_id = int(box.cls[0].cpu().numpy())
-            class_name = class_names.get(class_id, 'unknown')
-            confidence = float(box.conf[0].cpu().numpy())
-            
-            # Apply confidence threshold based on class
-            if class_name == 'handle':
-                # Check if handle detection is enabled
-                if not self.handle_detection:
-                    continue  # Skip handle detection
-                # Use handle_confidence threshold
-                if confidence < self.handle_confidence:
-                    continue
-            else:
-                # Use general confidence threshold for other objects
-                if confidence < self.confidence:
-                    continue
-            
-            all_detections.append({
-                'bbox': (x_min, y_min, x_max, y_max),
-                'class_id': class_id,
-                'class_name': class_name,
-                'confidence': confidence
-            })
+            # Temporary lists to hold raw candidates before final selection
+            blackbox_candidates = []
+            handle_candidates = []
 
-        # Keep only the highest confidence detection per class
-        filtered_detections = {}
-        for det in all_detections:
-            class_name = det['class_name']
-            if class_name not in filtered_detections:
-                filtered_detections[class_name] = det
-            else:
-                # Keep the one with higher confidence
-                if det['confidence'] > filtered_detections[class_name]['confidence']:
-                    filtered_detections[class_name] = det
+            # 1. Parse all boxes and separate them by class
+            for box in result.boxes:
+                x_min, y_min, x_max, y_max = box.xyxy[0].cpu().numpy()
+                x_min, y_min, x_max, y_max = int(x_min), int(y_min), int(x_max), int(y_max)
+                
+                class_id = int(box.cls[0].cpu().numpy())
+                class_name = class_names.get(class_id, 'unknown')
+                confidence = float(box.conf[0].cpu().numpy())
+                
+                detection_data = {
+                    'bbox': (x_min, y_min, x_max, y_max),
+                    'class_id': class_id,
+                    'class_name': class_name,
+                    'confidence': confidence
+                }
 
-        return list(filtered_detections.values())
+                if class_name == 'blackbox':
+                    if confidence >= self.confidence:
+                        blackbox_candidates.append(detection_data)
+                
+                elif class_name == 'handle':
+                    if self.handle_detection and confidence >= self.handle_confidence:
+                        handle_candidates.append(detection_data)
+
+            # 2. Select the BEST Blackbox
+            # We assume the highest confidence blackbox is the "True" one
+            best_blackbox = None
+            if blackbox_candidates:
+                # Sort by confidence descending and pick the first
+                best_blackbox = sorted(blackbox_candidates, key=lambda x: x['confidence'], reverse=True)[0]
+            
+            # 3. Apply Spatial Constraints to Handles
+            final_detections = []
+            
+            # If we have a blackbox, add it to final results
+            if best_blackbox:
+                final_detections.append(best_blackbox)
+
+            # If spatial validation is ON
+            if self.validate_handle_position:
+                # If NO blackbox detected, we cannot validate handles -> discard all (Option A)
+                if not best_blackbox:
+                    return [] 
+                
+                # Define Valid Region (Blackbox + Tolerance)
+                bb_xmin, bb_ymin, bb_xmax, bb_ymax = best_blackbox['bbox']
+                bb_width = bb_xmax - bb_xmin
+                bb_height = bb_ymax - bb_ymin
+                
+                # Calculate expansion amount
+                margin_x = bb_width * self.handle_position_tolerance
+                margin_y = bb_height * self.handle_position_tolerance
+                
+                # The allowed region for the handle CENTER
+                valid_min_x = bb_xmin - margin_x
+                valid_max_x = bb_xmax + margin_x
+                valid_min_y = bb_ymin - margin_y
+                valid_max_y = bb_ymax + margin_y
+
+                valid_handles = []
+                for handle in handle_candidates:
+                    h_xmin, h_ymin, h_xmax, h_ymax = handle['bbox']
+                    # Calculate handle center
+                    h_center_x = (h_xmin + h_xmax) / 2
+                    h_center_y = (h_ymin + h_ymax) / 2
+                    
+                    # CHECK: Is handle center inside the expanded blackbox?
+                    if (valid_min_x <= h_center_x <= valid_max_x) and \
+                    (valid_min_y <= h_center_y <= valid_max_y):
+                        valid_handles.append(handle)
+                
+                # Update candidate list to only include spatially valid ones
+                handle_candidates = valid_handles
+
+            # 4. Select the BEST Handle from remaining candidates
+            if handle_candidates:
+                best_handle = sorted(handle_candidates, key=lambda x: x['confidence'], reverse=True)[0]
+                final_detections.append(best_handle)
+
+            return final_detections
 
     def _extract_detections(self, filtered_detections, image_shape) -> Detection:
         """Extract detection coordinates from filtered detections"""
