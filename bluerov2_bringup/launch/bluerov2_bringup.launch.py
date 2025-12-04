@@ -13,12 +13,12 @@ def generate_launch_description():
     pkg_path = get_package_share_directory('bluerov2_bringup')
     teleop_pkg = get_package_share_directory('bluerov2_teleop')
     controller_pkg = get_package_share_directory('bluerov2_controller')
+    localization_pkg = get_package_share_directory('bluerov2_localization')
     searching_pkg = get_package_share_directory('bluerov2_search')
     bringup_launch_dir = os.path.join(pkg_path, 'launch')
-
     param_file_path = os.path.join(pkg_path, 'param', 'startup_param.yaml')
     searching_param_file_path = os.path.join(searching_pkg, 'param', 'search.yaml')
-
+    camera_param_file_path = os.path.join(localization_pkg, 'param', 'camera_calb_20_11.npz')
     with_camera_arg = DeclareLaunchArgument(
         'with_camera',
         default_value='true',
@@ -90,7 +90,12 @@ def generate_launch_description():
         ),
         launch_arguments={'namespace': ns}.items()
     )
-
+    vs_launch = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(controller_pkg, 'launch', 'bluerov2_visual_servoing.launch.py')
+        ),
+        launch_arguments={'namespace': ns,'calib_file':camera_param_file_path}.items()
+    )
     searching_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             os.path.join(searching_pkg, 'launch', 'bluerov2_search_pattern.launch.py')
@@ -114,6 +119,7 @@ def generate_launch_description():
         controllers_launch,
         searching_launch,
         approaching_launch,
+        vs_launch,
         # teleop_launch,
         # mavros_launch,
         # gimbal_launch

@@ -29,7 +29,7 @@ class Bluerov2DepthControl(LifecycleNode):
         self.declare_parameter('pid.i_lim',0.0)
         self.declare_parameter('enable', True)
         self.declare_parameter("hold",False)
-
+        self.declare_parameter("inverted",False)
         self.add_on_set_parameters_callback(self._on_set_parameters)
 
         # Runtime attributes
@@ -56,6 +56,7 @@ class Bluerov2DepthControl(LifecycleNode):
         self.rate = self.get_parameter('control_rate').value
         self.hold = self.get_parameter('hold').value
         self.enable = self.get_parameter('enable').value
+        self.inverted = self.get_parameter('inverted').value
 
         self.get_logger().info(f"rate:{self.rate}")
 
@@ -153,6 +154,12 @@ class Bluerov2DepthControl(LifecycleNode):
                     self.get_logger().info("Yaw controller enabled")
                 else:
                     self.get_logger().info("Yaw controller disabled")
+            elif p.name == 'inverted':
+                self.inverted = p.value
+                if self.inverted:
+                    self.get_logger().info("yaw controller inverted")
+                else:
+                    self.get_logger().info("yaw controller not inverted")
         return SetParametersResult(successful=True)
 
 
@@ -176,7 +183,8 @@ class Bluerov2DepthControl(LifecycleNode):
 
     # Timer callback: computes PID output and publishes RC override
     def _control_loop(self):
-        if self._pid is None:
+        if self._pid is None or not self.enable:
+            self.send_stop_force()
             return
         if self.hold:
             if self.init_control:
@@ -188,10 +196,14 @@ class Bluerov2DepthControl(LifecycleNode):
         angle = (self._current_yaw + np.pi) % (2 * np.pi) - np.pi
         # self.get_logger().info(f"current yaw: {angle}, target yaw: {self.target}")
         out,dic = self._pid.update(self.target, self._current_yaw) 
-        force = -out
+        if self.inverted:
+            force = out
+        else:
+            force = -out
         # self.get_logger().info(f"PID debug: {dic}")
         # self.get_logger().info(f"force: {force}")
         msg = Float64()
+        
         msg.data = force
         self._output_pub.publish(msg)
 

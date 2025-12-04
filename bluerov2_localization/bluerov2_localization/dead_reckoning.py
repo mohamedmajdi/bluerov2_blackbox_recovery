@@ -8,6 +8,9 @@ from tf_transformations import euler_from_quaternion
 from rcl_interfaces.msg import SetParametersResult
 from sensor_msgs.msg import Imu
 from rclpy.qos import QoSProfile, QoSReliabilityPolicy, QoSHistoryPolicy
+from tf2_ros import TransformBroadcaster
+from geometry_msgs.msg import TransformStamped
+
 
 class BlueROVDeadReckoning(Node):
     def __init__(self):
@@ -28,6 +31,21 @@ class BlueROVDeadReckoning(Node):
         self.declare_parameter('T6_inverted', False)
         self.declare_parameter('T7_inverted', False)
         self.declare_parameter('T8_inverted', False)
+
+        self.declare_parameter('surge_scale',1.0)
+        self.declare_parameter('sway_scale',1.0)
+        self.declare_parameter('heave_scale',1.0)
+        self.declare_parameter('roll_scale',1.0)
+        self.declare_parameter('pitch_scale',1.0)
+        self.declare_parameter('yaw_scale',1.0)
+
+
+        self.surge_scale = self.get_parameter('surge_scale').get_parameter_value().double_value
+        self.sway_scale = self.get_parameter('sway_scale').get_parameter_value().double_value
+        self.heave_scale = self.get_parameter('heave_scale').get_parameter_value().double_value
+        self.roll_scale = self.get_parameter('roll_scale').get_parameter_value().double_value
+        self.pitch_scale = self.get_parameter('pitch_scale').get_parameter_value().double_value
+        self.yaw_scale = self.get_parameter('yaw_scale').get_parameter_value().double_value
 
         self.T1_inverted = self.get_parameter('T1_inverted').get_parameter_value().bool_value
         self.T2_inverted = self.get_parameter('T2_inverted').get_parameter_value().bool_value
@@ -72,8 +90,8 @@ class BlueROVDeadReckoning(Node):
         ])
 
         # Initial state
-        self.eta = np.array([0.0, 7.5,0.0,0.0,0.0,0.0])  # [x y z roll pitch yaw]
-        # self.eta = np.zeros(6)
+        # self.eta = np.array([0.0, 7.5,0.0,0.0,0.0,0.0])  # [x y z roll pitch yaw]
+        self.eta = np.zeros(6)
         self.v = np.zeros(6)    # [u v w p q r]
 
         # Thruster forces (replace with real input)
@@ -88,6 +106,8 @@ class BlueROVDeadReckoning(Node):
         # self.filtered_sub = self.create_subscription(Odometry,'odometry/filtered',self.update_pose,10)
         # Timer 10 Hz
         self.timer = self.create_timer(0.1, self.timer_callback)
+        self.tf_broadcaster = TransformBroadcaster(self)
+
 
         # HIGH covariance (low confidence)
         self.cov = 0.01
@@ -159,6 +179,24 @@ class BlueROVDeadReckoning(Node):
             elif p.name == 'T8_inverted':
                 self.T8_inverted = p.value
                 self.get_logger().info(f"Thruster 2 inversion updated to: {self.T8_inverted}")
+            elif p.name == 'surge_scale':
+                self.surge_scale = p.value
+                self.get_logger().info(f"surge scale updated to: {self.surge_scale}")
+            elif p.name == 'sway_scale':
+                self.sway_scale = p.value
+                self.get_logger().info(f"sway scale updated to: {self.sway_scale}")
+            elif p.name == 'heave_scale':
+                self.heave_scale = p.value
+                self.get_logger().info(f"heave scale updated to: {self.heave_scale}")
+            elif p.name == 'roll_scale':
+                self.roll_scale = p.value
+                self.get_logger().info(f"roll scale updated to: {self.roll_scale}")
+            elif p.name == 'pitch_scale':
+                self.pitch_scale = p.value
+                self.get_logger().info(f"pitch scale updated to: {self.pitch_scale}")
+            elif p.name == 'yaw_scale':
+                self.yaw_scale = p.value
+                self.get_logger().info(f"yaw scale updated to: {self.yaw_scale}")
         return SetParametersResult(successful=True)
 
 
@@ -212,6 +250,14 @@ class BlueROVDeadReckoning(Node):
 
         # Integrate
         eta_dot = self.eta_dot_from_body_vel(self.eta,self.v)
+
+        eta_dot[0] *= self.surge_scale
+        eta_dot[1] *= self.sway_scale
+        eta_dot[2] *= self.heave_scale
+        eta_dot[3] *= self.roll_scale
+        eta_dot[4] *= self.pitch_scale
+        eta_dot[5] *= self.yaw_scale
+
         self.eta += eta_dot * dt
         # self.eta[0:3] += eta_dot[0:3] * dt
         self.v += v_dot * dt
@@ -229,15 +275,15 @@ class BlueROVDeadReckoning(Node):
             self.v[0] = 0.0
         elif(self.eta[0] > 13.0):
             self.eta[0] = 13.0
+            self.v[0] = 0.0
         
-        if (self.eta[2] < 0.0):
-            self.eta[0] = 0.0
-            self.v[0] = 0.0
-        elif(self.eta[2] > 8.0):
-            self.eta[0] = 8.0
-            self.v[0] = 0.0
+        if (self.eta[1] < 0.0):
+            self.eta[1] = 0.0
+            self.v[1] = 0.0
+        elif(self.eta[1] > 8.0):
+            self.eta[1] = 8.0
+            self.v[1] = 0.0
 
-            self.v[0] = 0.0
         # Publish Odometry
         odom = Odometry()
         odom.header.stamp = self.get_clock().now().to_msg()
@@ -258,10 +304,16 @@ class BlueROVDeadReckoning(Node):
         cr = np.cos(roll * 0.5)
         sr = np.sin(roll * 0.5)
 
-        odom.pose.pose.orientation.w = cr*cp*cy + sr*sp*sy
-        odom.pose.pose.orientation.x = sr*cp*cy - cr*sp*sy
-        odom.pose.pose.orientation.y = cr*sp*cy + sr*cp*sy
-        odom.pose.pose.orientation.z = cr*cp*sy - sr*sp*cy
+        qx = sr*cp*cy - cr*sp*sy
+        qy = cr*sp*cy + sr*cp*sy
+        qz = cr*cp*sy - sr*sp*cy
+        qw = cr*cp*cy + sr*sp*sy
+
+
+        odom.pose.pose.orientation.w = qw
+        odom.pose.pose.orientation.x = qx
+        odom.pose.pose.orientation.y = qy
+        odom.pose.pose.orientation.z = qz
 
         # Velocities
         odom.twist.twist.linear.x = float(self.v[0])
@@ -276,6 +328,22 @@ class BlueROVDeadReckoning(Node):
         odom.twist.covariance = self.twist_cov
 
         self.pub.publish(odom)
+
+        t = TransformStamped()
+        t.header.stamp = odom.header.stamp
+        t.header.frame_id = "odom"
+        t.child_frame_id = "base_link"
+
+        t.transform.translation.x = odom.pose.pose.position.x
+        t.transform.translation.y = odom.pose.pose.position.y
+        t.transform.translation.z = odom.pose.pose.position.z
+
+        t.transform.rotation.x = qx
+        t.transform.rotation.y = qy
+        t.transform.rotation.z = qz
+        t.transform.rotation.w = qw
+
+        self.tf_broadcaster.sendTransform(t)
 
     def _pwm_to_force(self,pwm,inverted = False):
         if inverted:

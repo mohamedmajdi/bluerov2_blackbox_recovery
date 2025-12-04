@@ -105,18 +105,26 @@ class bluerov2_bringup(Node):
         self.roll = 1500
         self.pitch = 1500
         self.yaw = 1500
+        self.surge_servoing, self.sway_servoing, self.heave_servoing, self.roll_servoing, self.pitch_servoing, self.yaw_servoing = 1500, 1500, 1500, 1500, 1500, 1500
 
+         #### Lifecycle Managers ####
         self.depth_controller_node_name = "depth_controller"
         self.yaw_controller_node_name = "yaw_controller"
         self.pitch_controller_node_name = "pitch_controller"
+        self.roll_controller_node_name = "roll_controller"
         self.gimbal_node_name = "bluerov2_gimbal"
         self.serch_node_name = "search_pattern"
         self.approaching_node_name = "box_approaching"
+        self.vs_node_name = "visual_servoing"
 
         self.depth_manager = LifecycleManager(self, self.depth_controller_node_name)
         self.yaw_manager = LifecycleManager(self, self.yaw_controller_node_name)
         self.pitch_manager = LifecycleManager(self, self.pitch_controller_node_name)
+        self.roll_manager = LifecycleManager(self, self.roll_controller_node_name)
+
         self.gimbal_manager = LifecycleManager(self, self.gimbal_node_name)
+
+        self.vs_manager = LifecycleManager(self, self.vs_node_name)
 
         self.search_manager = LifecycleManager(self, self.serch_node_name)
         self.approaching_manger = LifecycleManager(self, self.approaching_node_name)
@@ -125,6 +133,10 @@ class bluerov2_bringup(Node):
         self.yaw_manager.configure()
         self.pitch_manager.configure()
         self.gimbal_manager.configure()
+        self.roll_manager.configure()
+
+        self.vs_manager.configure()
+
         self.search_manager.configure()
         self.approaching_manger.configure()
 
@@ -174,38 +186,39 @@ class bluerov2_bringup(Node):
             self.RC_pwms[4] = self.surge
             self.RC_pwms[5] = self.sway
         # self.get_logger().info(f"heave pwm: {self.heave}, sent pwm:{self.RC_pwms[2]}")
-        self.setOverrideRCIN(self.RC_pwms)
 
-        if self.mode == "servoing":
-
+        elif self.mode == "servoing":
+            # self.get_logger().info("In servoing mode")
             self.RC_pwms[0] = self.pitch_servoing
             self.RC_pwms[1] = self.roll_servoing
-            # self.RC_pwms[2] += self.heave - 1500
-            # self.RC_pwms[3] += self.yaw - 1500
-            # self.RC_pwms[4] += self.surge - 1500
-            # self.RC_pwms[5] += self.sway - 1500
-
             self.RC_pwms[2] = self.heave_servoing
             self.RC_pwms[3] = self.yaw_servoing
             self.RC_pwms[4] = self.surge_servoing
             self.RC_pwms[5] = self.sway_servoing
+
+        self.setOverrideRCIN(self.RC_pwms)
+        
         if self.mode_change:
             self.get_logger().info(f"Mode changed to {self.mode}")
             if self.mode == "correction":
                 self.search_manager.deactivate()
                 self.approaching_manger.deactivate()
-
+                self.vs_manager.deactivate()
                 self.depth_manager.activate()
                 self.yaw_manager.activate()
                 self.pitch_manager.activate()
+                self.roll_manager.activate()
 
                 if self.enable_gimbal:
                     self.gimbal_manager.activate()
             elif self.mode == "manual":
+                self.roll_manager.deactivate()
                 self.depth_manager.deactivate()
                 self.yaw_manager.deactivate()
                 self.pitch_manager.deactivate()
                 self.search_manager.deactivate()
+                self.approaching_manger.deactivate()
+                self.vs_manager.deactivate()
                 self.RC_pwms[0] = 1500
                 self.RC_pwms[1] = 1500
                 self.RC_pwms[2] = 1500
@@ -220,6 +233,8 @@ class bluerov2_bringup(Node):
                 self.yaw_manager.activate()
                 self.pitch_manager.deactivate()
                 self.search_manager.activate()
+                self.approaching_manger.deactivate()
+                self.roll_manager.deactivate()
 
             elif self.mode == "approaching":
                 self.get_logger().info("Box found, starting approaching behavior")
@@ -228,6 +243,17 @@ class bluerov2_bringup(Node):
                 self.pitch_manager.deactivate()
                 self.search_manager.deactivate()
                 self.approaching_manger.activate()
+                self.roll_manager.deactivate()
+
+            elif self.mode == "servoing":
+                self.get_logger().info("Starting visual servoing")
+                self.depth_manager.deactivate()
+                self.yaw_manager.deactivate()
+                self.roll_manager.deactivate()
+                self.pitch_manager.deactivate()
+                self.search_manager.deactivate()
+                self.approaching_manger.deactivate()
+                self.vs_manager.activate()
               
 
             self.mode_change = False 

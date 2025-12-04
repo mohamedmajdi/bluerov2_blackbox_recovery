@@ -35,6 +35,11 @@ def generate_launch_description():
         'launch',
         'bluerov2_pitch_controller.launch.py'
     ])
+    roll_launch = PathJoinSubstitution([
+        FindPackageShare('bluerov2_controller'),
+        'launch',
+        'bluerov2_roll_controller.launch.py'
+    ])
 
     return LaunchDescription([
         config_arg,
@@ -48,6 +53,10 @@ def generate_launch_description():
         ),
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(pitch_launch),
+            launch_arguments={'namespace': namespace, 'param': config}.items()
+        ),
+        IncludeLaunchDescription(
+            PythonLaunchDescriptionSource(roll_launch),
             launch_arguments={'namespace': namespace, 'param': config}.items()
         ),
         Node(

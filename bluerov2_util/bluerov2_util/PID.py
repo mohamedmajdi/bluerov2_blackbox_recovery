@@ -31,6 +31,7 @@ class PID:
         error = setpoint - measurement
         if self.angle_controller:
             error = self.normalize_angle(error)
+            # print("Angle error before normalization:", error," After normalization:", error)
         # P
         p = self.kp * error
 

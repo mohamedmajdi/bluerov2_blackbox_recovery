@@ -26,6 +26,8 @@ setup(
                             'bluerov2_depth_hold = bluerov2_controller.bluerov2_depth_hold:main',
                             'bluerov2_yaw_hold = bluerov2_controller.bluerov2_yaw_hold:main',
                             'bluerov2_pitch_controller = bluerov2_controller.bluerov2_pitch_controller:main',
-                            'frame_transform = bluerov2_controller.frame_transform:main'],
+                            'visual_servoing = bluerov2_controller.visual_servoing:main',
+                            'frame_transform = bluerov2_controller.frame_transform:main',
+                            'bluerov2_roll_controller = bluerov2_controller.bluerov2_roll_controller:main',],
     },
 )

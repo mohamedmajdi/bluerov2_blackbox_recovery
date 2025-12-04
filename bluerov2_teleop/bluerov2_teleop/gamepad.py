@@ -128,9 +128,9 @@ class GamepadTelop(Node):
         if (btn_manual_mode and not self.mode == "manual"):
             self.mode = "manual"
             self.get_logger().info("Mode manual")
-        if (btn_automatic_mode and  self.mode == "automatic"):
-            self.mode = "automatic"
-            self.get_logger().info("Mode automatic")
+        if (btn_automatic_mode and not self.mode == "servoing"):
+            self.mode = "servoing"
+            self.get_logger().info("Mode servoing")
         if (btn_corrected_mode and not self.mode == "correction"):
             self.mode = "correction"
             self.get_logger().info("Mode correction")

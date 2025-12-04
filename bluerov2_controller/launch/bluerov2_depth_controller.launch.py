@@ -18,7 +18,7 @@ def generate_launch_description():
     config_arg = DeclareLaunchArgument(
         'config',
         default_value=config_path,
-        description='camera calibration file (.npz)'
+        description='controller configuration file (.yaml)'
     )
     
     return LaunchDescription([

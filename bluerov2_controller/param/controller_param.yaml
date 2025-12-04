@@ -38,10 +38,25 @@
       kp: 0.3
       ki: 0.0
       kd: 0.0
-    target_yaw: 0.785
+      i_lim: 5.0
+    target_pitch: 0.0
     input_topic: "imu/data"
     setpoint_topic: "desired_pitch"
     output_topic: "controller/pitch_force"
+    control_rate: 20.0
+    hold: True
+    enable: False
+
+/bluerov2/roll_controller:
+  ros__parameters:
+    pid:
+      kp: 0.3
+      ki: 0.0
+      kd: 0.0
+    target_roll: 0.0
+    input_topic: "imu/data"
+    setpoint_topic: "desired_roll"
+    output_topic: "controller/roll_force"
     control_rate: 20.0
     hold: True
     enable: False
@@ -51,5 +66,7 @@
     heave_topic: "controller/heave_force"
     yaw_topic: "controller/yaw_force"
     pitch_topic: "controller/pitch_force"
+    roll_topic: "controller/roll_force"
     imu_topic: "imu/data"
     output_topic: "controller/pwm"
+
