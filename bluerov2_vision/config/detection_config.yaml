@@ -6,7 +6,10 @@ confidence: 0.5
 handle_confidence: 0.5
 
 #handle detection
-handle_detection: false
+handle_detection: true
+
+#camera window
+show_camera_window: true
 
 # IOU threshold for NMS (Non-Maximum Suppression)
 # Controls how much overlap is allowed between detections
@@ -20,7 +23,8 @@ camera_resolution:
 # Model settings
 model:
   # Path to model weights (relative to script directory)
-  weights_path: "weights/M1_1.pt"
+  weights_path: "weights/dec5.pt"
   
   # Device: "cpu" or "0" (for GPU)
   device: 0
+ 

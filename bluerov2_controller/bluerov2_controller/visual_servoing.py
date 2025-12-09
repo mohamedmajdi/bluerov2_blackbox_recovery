@@ -31,7 +31,7 @@ class VisionController(LifecycleNode):
         self.declare_parameter('calib_file', 'camera_params.npz',
                                ParameterDescriptor(description='npz with camera calibration', type=ParameterType.PARAMETER_STRING))
         self.declare_parameter('desired_point_x', -1.0, ParameterDescriptor(type=ParameterType.PARAMETER_DOUBLE))
-        self.declare_parameter('desired_point_y', -1.0, ParameterDescriptor(type=ParameterType.PARAMETER_DOUBLE))
+        self.declare_parameter('desired_point_y', 400.0, ParameterDescriptor(type=ParameterType.PARAMETER_DOUBLE))
         self.declare_parameter('desired_point_z', 0.5, ParameterDescriptor(type=ParameterType.PARAMETER_DOUBLE))
 
         self.declare_parameter('fast_surge', False,
@@ -39,23 +39,23 @@ class VisionController(LifecycleNode):
                             type=ParameterType.PARAMETER_BOOL))
 
         for name, default in (
-            ('gain_surge', 0.6),
-            ('gain_sway', 0.5),
-            ('gain_heave', 0.5),
-            ('gain_yaw', 0.5),
-            ('v_linear_max', 0.3),
-            ('v_angular_max', 0.5),
-            ('floatability', -0.18),
+            ('gain_surge', 0.05),
+            ('gain_sway', 0.3),
+            ('gain_heave', 3.3),
+            ('gain_yaw', 14.2),
+            ('v_linear_max', 0.15),
+            ('v_angular_max', 0.6),
+            ('floatability', -0.125),
             ('invert_surge', False),
             ('invert_sway', False),
             ('invert_heave', True),
-            ('invert_yaw', True),
+            ('invert_yaw', False),
             ('enable_visual_servoing', True),
             ('track_handle', False),
-            ('enable_of_tracking', False),
+            ('enable_of_tracking', True),
             # ('send_to_bringup', False),
-            # ('image_topic', 'camera/image'),
-            ('image_topic', '/bluerov/camera/image_color'),
+            ('image_topic', 'camera/image'),
+            # ('image_topic', '/bluerov/camera/image_color'),
             ('detections_topic', 'detections'),
             ('pwm_topic', 'controller/pwm_servoing'),
             # ('bringup_topic', 'controller/pwm_servoing'),
@@ -83,7 +83,7 @@ class VisionController(LifecycleNode):
         self.invert_surge = False
         self.invert_sway = False
         self.invert_heave = True
-        self.invert_yaw = True
+        self.invert_yaw = False
         self.enable_visual_servoing = True
         self.track_handle = False
         self.enable_of_tracking = False
@@ -159,6 +159,7 @@ class VisionController(LifecycleNode):
 
     def on_activate(self, state: State) -> TransitionCallbackReturn:
         self.get_logger().info("Activating VisionController...")
+        self.Camera_pwm = dict(pitch=1500, roll=1500, heave=1500, yaw=1500, surge=1500, sway=1500)
 
         qos = QoSProfile(reliability=QoSReliabilityPolicy.RELIABLE, history=QoSHistoryPolicy.KEEP_LAST, depth=10)
         self.sub_image = self.create_subscription(Image,self.get_parameter('image_topic').value, self.image_callback, qos_profile=qos)
@@ -171,6 +172,20 @@ class VisionController(LifecycleNode):
         return TransitionCallbackReturn.SUCCESS
 
     def on_deactivate(self, state: State) -> TransitionCallbackReturn:
+        self.Camera_pwm = dict(pitch=1500, roll=1500, heave=1500, yaw=1500, surge=1500, sway=1500)
+        self.blackbox_xmin = self.blackbox_xmax = self.blackbox_ymin = self.blackbox_ymax = 0
+        self.blackbox_xcenter = self.blackbox_ycenter = 0
+        self.handle_xmin = self.handle_xmax = self.handle_xcenter = 0
+        self.handle_ymin = self.handle_ymax = self.handle_ycenter = 0
+
+        # OF tracker
+        self.track_points = None
+        self.prev_gray = None
+        self.roi_w = self.roi_h = 0
+        self.frames_since_reinit = 0
+        self.last_handle_bbox = None
+        self.last_good_center = None
+        self.handle_lost_frames = 0
         self.get_logger().info("Deactivating VisionController...")
         if self._timer:
             self._timer.cancel()
@@ -356,11 +371,24 @@ class VisionController(LifecycleNode):
         try:
             self.image_np = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
             h, w = self.image_np.shape[:2]
-            # auto center desired point if requested
+            
+            # Initialize desired point if not set or invalid
             if not getattr(self, 'image_center_set', False):
-                if self.desired_point is None or self.desired_point[0] < 0 or self.desired_point[1] < 0:
-                    self.desired_point = np.array([w//2, h//2, self.desired_point[2] if self.desired_point is not None else 0.5])
-                    self.get_logger().info(f"Auto-set desired point to center [{self.desired_point[0]}, {self.desired_point[1]}]")
+                dp_x = self.get_parameter('desired_point_x').value
+                dp_y = self.get_parameter('desired_point_y').value
+                dp_z = self.get_parameter('desired_point_z').value
+                
+                # Auto-center if -1, otherwise validate bounds
+                if dp_x < 0 or dp_x >= w:
+                    dp_x = w // 2
+                    self.get_logger().warn(f"desired_point_x out of bounds, using center: {dp_x}")
+                
+                if dp_y < 0 or dp_y >= h:
+                    dp_y = h // 2
+                    self.get_logger().warn(f"desired_point_y out of bounds, using center: {dp_y}")
+                
+                self.desired_point = np.array([dp_x, dp_y, dp_z])
+                self.get_logger().info(f"Set desired point to [{dp_x}, {dp_y}, {dp_z}]")
                 self.image_center_set = True
 
             # compute distance if box available
@@ -416,16 +444,16 @@ class VisionController(LifecycleNode):
 
             if elapsed < self.attachment_duration:
                 # Fast forward surge
-                self.Camera_cooriction_surge = self.mapValueScalSat(self.attachment_speed)
-                self.Camera_cooriction_sway = 1500
-                self.Camera_cooriction_heave = self.mapValueScalSat(self.floatability)
-                self.Camera_cooriction_yaw = 1500
+                self.Camera_pwm['surge'] = map_to_pwm(self.attachment_speed)
+                self.Camera_pwm['sway'] = 1500
+                self.Camera_pwm['heave'] = map_to_pwm(self.floatability)
+                self.Camera_pwm['yaw'] = 1500
                 self.tracking_mode = "ATTACHING"
                 return
             else:
                 # Attachment duration complete, reset
                 self.attachment_start_time = None
-                self.set_parameters([rclpy.parameter.Parameter('fast_surge', rclpy.Parameter.Type.BOOL, False)])
+                #self.set_parameters([rclpy.parameter.Parameter('fast_surge', rclpy.Parameter.Type.BOOL, False)])
                 self.fast_surge = False  # Disable fast surge after completion
                 self.gains[2] = self.get_parameter('gain_surge').value  # Reset to normal gain
         else:
@@ -490,21 +518,21 @@ class VisionController(LifecycleNode):
                 )
                 
                 # Validate the tracked position
-                valid_position = False
-                if projected_pos is not None:
-                    # Check if position makes sense relative to box
-                    if self.blackbox_ymin > 0:
-                        # Handle should be above box top (with tolerance)
-                        if projected_pos[1] < self.blackbox_ymin + 150:  # 150px tolerance
-                            valid_position = True
-                        else:
-                            self.get_logger().warn(
-                                f"Feature tracking invalid: y={projected_pos[1]:.1f} below box_top={self.blackbox_ymin:.1f}",
-                                throttle_duration_sec=1.0
-                            )
-                    else:
-                        # No box detection to validate against, accept the position
-                        valid_position = True
+                valid_position = True
+                # if projected_pos is not None:
+                #     # Check if position makes sense relative to box
+                #     if self.blackbox_ymin > 0:
+                #         # Handle should be above box top (with tolerance)
+                #         if projected_pos[1] < self.blackbox_ymin + 150:  # 150px tolerance
+                #             valid_position = True
+                #         else:
+                #             self.get_logger().warn(
+                #                 f"Feature tracking invalid: y={projected_pos[1]:.1f} below box_top={self.blackbox_ymin:.1f}",
+                #                 throttle_duration_sec=1.0
+                #             )
+                #     else:
+                #         # No box detection to validate against, accept the position
+                #         valid_position = True
                 
                 if valid_position and projected_pos is not None:
                     # Feature tracking successful and validated
@@ -651,7 +679,7 @@ class VisionController(LifecycleNode):
                     label = 'box center'
                             
                 self.overlay_points(self.image_np, [detected_x, detected_y], 0, 255, 0,
-                                'box center', scale=0.7, offsetx=10, offsety=10)
+                                label, scale=0.7, offsetx=10, offsety=10)
                 
                 error_x = detected_x - desired_x
                 error_y = detected_y - desired_y
@@ -695,7 +723,7 @@ class VisionController(LifecycleNode):
                         (10, info_y + 4*line_height), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
                 
                 # Display current gains and floatability
-                gains_text = f"Gains [S,Sw,H,Y]: [{self.gains[0]:.2f}, {self.gains[1]:.2f}, {self.gains[2]:.2f}, {self.gains[3]:.2f}] | Float: {self.floatability:.2f}"
+                gains_text = f"Gains [S,Sw,H,Y]: [{self.gains[2]:.2f}, {self.gains[0]:.2f}, {self.gains[1]:.2f}, {self.gains[3]:.2f}] | Float: {self.floatability:.3f}"
                 cv2.putText(self.image_np, gains_text,
                         (10, info_y + 5*line_height), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 3)
                 cv2.putText(self.image_np, gains_text,
@@ -703,8 +731,7 @@ class VisionController(LifecycleNode):
                 
                 # Display tracking mode
                 status_text = (f"VS: {'ON' if self.enable_visual_servoing else 'OFF'} | "
-                            f"Mode: {self.tracking_mode} | Lost: {self.handle_lost_frames} | "
-                            f"Inv: S={self.invert_surge} Sw={self.invert_sway} H={self.invert_heave} Y={self.invert_yaw}")
+                            f"Mode: {self.tracking_mode} | Lost: {self.handle_lost_frames} ")
                 cv2.putText(self.image_np, status_text,
                         (10, info_y + 6*line_height), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 3)
                 cv2.putText(self.image_np, status_text,

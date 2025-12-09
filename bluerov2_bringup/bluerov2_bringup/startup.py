@@ -212,12 +212,14 @@ class bluerov2_bringup(Node):
                 if self.enable_gimbal:
                     self.gimbal_manager.activate()
             elif self.mode == "manual":
-                self.roll_manager.deactivate()
-                self.depth_manager.deactivate()
-                self.yaw_manager.deactivate()
-                self.pitch_manager.deactivate()
-                self.search_manager.deactivate()
-                self.approaching_manger.deactivate()
+                self.surge_servoing, self.sway_servoing, self.heave_servoing, self.roll_servoing, self.pitch_servoing, self.yaw_servoing = 1500, 1500, 1500, 1500, 1500, 1500
+
+                # self.roll_manager.deactivate()
+                # self.depth_manager.deactivate()
+                # self.yaw_manager.deactivate()
+                # self.pitch_manager.deactivate()
+                # self.search_manager.deactivate()
+                # self.approaching_manger.deactivate()
                 self.vs_manager.deactivate()
                 self.RC_pwms[0] = 1500
                 self.RC_pwms[1] = 1500
@@ -246,13 +248,14 @@ class bluerov2_bringup(Node):
                 self.roll_manager.deactivate()
 
             elif self.mode == "servoing":
+
                 self.get_logger().info("Starting visual servoing")
-                self.depth_manager.deactivate()
-                self.yaw_manager.deactivate()
-                self.roll_manager.deactivate()
-                self.pitch_manager.deactivate()
-                self.search_manager.deactivate()
-                self.approaching_manger.deactivate()
+                # self.depth_manager.deactivate()
+                # self.yaw_manager.deactivate()
+                # self.roll_manager.deactivate()
+                # self.pitch_manager.deactivate()
+                # self.search_manager.deactivate()
+                # self.approaching_manger.deactivate()
                 self.vs_manager.activate()
               
 
