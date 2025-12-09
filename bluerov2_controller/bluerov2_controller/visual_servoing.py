@@ -11,6 +11,7 @@ from bluerov2_interface.msg import Detection
 from cv_bridge import CvBridge
 import numpy as np
 import cv2
+import time
 
 # --- minimal helper: clamp & map to pwm ---
 def map_to_pwm(value: float) -> int:
@@ -23,12 +24,19 @@ class VisionController(LifecycleNode):
     def __init__(self):
         super().__init__('vision_controller')
 
+        self.attachment_start_time = None
+        self.fast_surge = False
+
         # --- default parameters ---
         self.declare_parameter('calib_file', 'camera_params.npz',
                                ParameterDescriptor(description='npz with camera calibration', type=ParameterType.PARAMETER_STRING))
         self.declare_parameter('desired_point_x', -1.0, ParameterDescriptor(type=ParameterType.PARAMETER_DOUBLE))
         self.declare_parameter('desired_point_y', -1.0, ParameterDescriptor(type=ParameterType.PARAMETER_DOUBLE))
         self.declare_parameter('desired_point_z', 0.5, ParameterDescriptor(type=ParameterType.PARAMETER_DOUBLE))
+
+        self.declare_parameter('fast_surge', False,
+            ParameterDescriptor(description='Enable fast surge when close to the handle',
+                            type=ParameterType.PARAMETER_BOOL))
 
         for name, default in (
             ('gain_surge', 0.6),
@@ -234,6 +242,9 @@ class VisionController(LifecycleNode):
                 elif name == 'track_handle':
                     self.track_handle = val
                     self.get_logger().info(f"track_handle updated to {val}")
+                elif name == 'fast_surge':
+                    self.fast_surge = p.value
+                    self.get_logger().info(f"Fast surge when close to handle {'ENABLED' if p.value else 'DISABLED'}")
                 elif name == 'enable_of_tracking':
                     self.enable_of_tracking = val
                     self.get_logger().info(f"enable_of_tracking updated to {val}")
@@ -295,10 +306,11 @@ class VisionController(LifecycleNode):
             if dp_y >= 0: self.desired_point[1] = dp_y
             self.desired_point[2] = dp_z
 
-        self.gains = np.array([self.get_parameter('gain_surge').value,
-                               self.get_parameter('gain_sway').value,
-                               self.get_parameter('gain_heave').value,
-                               self.get_parameter('gain_yaw').value])
+        self.gains = np.array([
+            self.get_parameter('gain_sway').value,
+            self.get_parameter('gain_heave').value,
+            self.get_parameter('gain_surge').value,
+            self.get_parameter('gain_yaw').value])
         self.v_linear_max = self.get_parameter('v_linear_max').value
         self.v_angular_max = self.get_parameter('v_angular_max').value
         self.floatability = self.get_parameter('floatability').value
@@ -309,6 +321,8 @@ class VisionController(LifecycleNode):
         self.enable_visual_servoing = self.get_parameter('enable_visual_servoing').value
         self.track_handle = self.get_parameter('track_handle').value
         self.enable_of_tracking = self.get_parameter('enable_of_tracking').value
+        self.fast_surge = self.get_parameter('fast_surge').value
+
         # self.send_to_bringup = self.get_parameter('send_to_bringup').value
 
     # ---------- control loop ----------
@@ -388,6 +402,39 @@ class VisionController(LifecycleNode):
             self.tracking_mode = "DISABLED"
             return
         
+        # fast surge when close to the handle
+        if self.fast_surge and self.distance <= 0.3:
+
+            # Initialize attachment start time only once
+            if self.attachment_start_time is None:
+                self.attachment_start_time = time.time()           
+                self.gains[2] = 1.0  # Increase surge gain
+                self.attachment_duration = 1.5  # seconds
+                self.attachment_speed = 0.5  # m/s
+
+            elapsed = time.time() - self.attachment_start_time
+
+            if elapsed < self.attachment_duration:
+                # Fast forward surge
+                self.Camera_cooriction_surge = self.mapValueScalSat(self.attachment_speed)
+                self.Camera_cooriction_sway = 1500
+                self.Camera_cooriction_heave = self.mapValueScalSat(self.floatability)
+                self.Camera_cooriction_yaw = 1500
+                self.tracking_mode = "ATTACHING"
+                return
+            else:
+                # Attachment duration complete, reset
+                self.attachment_start_time = None
+                self.set_parameters([rclpy.parameter.Parameter('fast_surge', rclpy.Parameter.Type.BOOL, False)])
+                self.fast_surge = False  # Disable fast surge after completion
+                self.gains[2] = self.get_parameter('gain_surge').value  # Reset to normal gain
+        else:
+            # Conditions not met, reset timer if it was running
+            if self.attachment_start_time is not None:
+                self.attachment_start_time = None
+                self.gains[2] = self.get_parameter('gain_surge').value  # Reset to normal gain
+                self.get_logger().warn("Fast surge interrupted, resuming normal tracking")
+
         # Extract detection data
         self.blackbox_xmin = msg.blackbox_xmin
         self.blackbox_xmax = msg.blackbox_xmax
@@ -468,23 +515,23 @@ class VisionController(LifecycleNode):
                         throttle_duration_sec=1.0
                     )
                 else:
-                    # Level 3: Box Center Fallback (LAST RESORT)
-                    x, y = self._px2norm([self.blackbox_xcenter, self.blackbox_ymin])
+                    # Level 3: Box BOTTOM Center Fallback (LAST RESORT)
+                    x, y = self._px2norm([self.blackbox_xcenter, self.blackbox_ymax])
                     self.tracking_mode = "BOX-FALLBACK"
                     self.get_logger().warn(
                         "Feature tracking failed, using box top center",
                         throttle_duration_sec=1.0
                     )
             else:
-                # Not enough frames lost yet, use box top center
-                x, y = self._px2norm([self.blackbox_xcenter, self.blackbox_ymin])
+                # Not enough frames lost yet, use box BOTTOM center
+                x, y = self._px2norm([self.blackbox_xcenter, self.blackbox_ymax])
                 self.tracking_mode = "BOX-EARLY"
         else:
-            # Track top center of box (default or when track_handle is disabled)
+            # Track BOTTOM center of box (default or when track_handle is disabled)
             box_top_center_x = self.blackbox_xcenter
             box_top_center_y = self.blackbox_ymin  
-            x, y = self._px2norm([box_top_center_x, box_top_center_y])
-            self.tracking_mode = "BOX-TOP"
+            x, y = self._px2norm([box_top_center_x, self.blackbox_ymax])
+            self.tracking_mode = "BOX-BOTTOM"
             self.handle_lost_frames = 0
 
         
@@ -595,8 +642,8 @@ class VisionController(LifecycleNode):
                 if "BOX" in self.tracking_mode:
                     # We track BOX TOP CENTER, not box center
                     detected_x = int(self.blackbox_xcenter)
-                    detected_y = int(self.blackbox_ymin)  # Changed from blackbox_ycenter!
-                    label = 'box top center'
+                    detected_y = int(self.blackbox_ymax)  # Changed from blackbox_ycenter!
+                    label = 'box bottom center'
                 else:
                     # For other modes, show actual box center for reference
                     detected_x = int(self.blackbox_xcenter)
