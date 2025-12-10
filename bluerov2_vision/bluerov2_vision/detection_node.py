@@ -52,7 +52,8 @@ class YOLOv11DetectionNode(Node):
             self.camera_callback,
             10  # QoS queue size
         )
-        
+        #sim topic:   /bluerov/camera/image_color
+        # real robot topic: camera/image
         self.camera_publisher = self.create_publisher(
             Image,
             'camera_detections',

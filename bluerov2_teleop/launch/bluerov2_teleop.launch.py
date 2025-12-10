@@ -34,15 +34,15 @@ def generate_launch_description():
     sim = LaunchConfiguration('sim')
 
     # Include gamepad launch file with sim argument forwarded
-    # gamepad_launch = IncludeLaunchDescription(
-    #     PythonLaunchDescriptionSource(
-    #         os.path.join(teleop_pkg_dir, 'launch', 'run_gamepad.launch.py')
-    #     ),
-    #     launch_arguments={
-    #         'namespace': ns,
-    #         'sim': sim
-    #     }.items()
-    # )
+    gamepad_launch = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(teleop_pkg_dir, 'launch', 'run_gamepad.launch.py')
+        ),
+        launch_arguments={
+            'namespace': ns,
+            'sim': sim
+        }.items()
+    )
 
     # Teleop node
     teleop_node = Node(
@@ -59,6 +59,6 @@ def generate_launch_description():
         namespace_arg,
         params_file_arg,
         sim_arg,
-        # gamepad_launch,
+        gamepad_launch,
         teleop_node
     ])
