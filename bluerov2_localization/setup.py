@@ -29,6 +29,7 @@ setup(
     entry_points={
         'console_scripts': [
             'imu_localization = bluerov2_localization.imu_localization:main',
+            'imu_correction= bluerov2_localization.imu_correction:main',
             'aruco_detector = bluerov2_localization.aruco_detector:main',
             'aruco_tf = bluerov2_localization.aruco_tf:main',
             'aruco_localization = bluerov2_localization.aruco_localization:main',
