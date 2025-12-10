@@ -59,7 +59,9 @@ class VisionController(LifecycleNode):
             ('detections_topic', 'detections'),
             ('pwm_topic', 'controller/pwm_servoing'),
             # ('bringup_topic', 'controller/pwm_servoing'),
-            ('control_rate', 20.0)
+            ('control_rate', 20.0),
+            ('rotating_yaw_factor',1.0),
+            ('rotating_sway_factor',1.0)
         ):
             tp = ParameterType.PARAMETER_BOOL if isinstance(default, bool) else \
                  ParameterType.PARAMETER_DOUBLE if isinstance(default, float) else \
@@ -118,6 +120,10 @@ class VisionController(LifecycleNode):
         self._timer = None
         self.rate = 20.0
         self.tracking_mode = None
+        self.known_w = 0.14
+
+        self.rotating_yaw_factor = 1.0
+        self.rotating_sway_factor = 1.0
 
         self.get_logger().info("VisionController constructed")
 
@@ -288,6 +294,12 @@ class VisionController(LifecycleNode):
                 elif name == 'invert_yaw':
                     self.invert_yaw = val
                     self.get_logger().info(f"invert_yaw updated to {val}")
+                elif name == 'rotating_yaw_factor':
+                    self.rotating_yaw_factor = val 
+                    self.get_logger().info(f"rotating_yaw_factor updated to {val}")
+                elif name == 'rotating_sway_factor':
+                    self.rotating_sway_factor = val 
+                    self.get_logger().info(f"rotating_sway_factor updated to {val}")
                 # Reload calibration file on the fly
                 elif name == 'calib_file':
                     try:
@@ -337,6 +349,8 @@ class VisionController(LifecycleNode):
         self.track_handle = self.get_parameter('track_handle').value
         self.enable_of_tracking = self.get_parameter('enable_of_tracking').value
         self.fast_surge = self.get_parameter('fast_surge').value
+        self.rotating_sway_factor = self.get_parameter('rotating_sway_factor').value
+        self.rotating_yaw_factor = self.get_parameter('rotating_yaw_factor').value
 
         # self.send_to_bringup = self.get_parameter('send_to_bringup').value
 
@@ -419,6 +433,13 @@ class VisionController(LifecycleNode):
         Now with multi-level handle tracking: YOLO -> Features -> OF -> Box fallback
         """
         # If visual servoing is disabled, set neutral commands and return
+        surge_sign = -1.0 if self.invert_surge else 1.0
+        sway_sign = -1.0 if self.invert_sway else 1.0
+        heave_sign = -1.0 if self.invert_heave else 1.0
+        yaw_sign = -1.0 if self.invert_yaw else 1.0
+
+
+
         if not self.enable_visual_servoing:
             self.Camera_pwm['surge'] = 1500
             self.Camera_pwm['sway']  = 1500
@@ -480,6 +501,33 @@ class VisionController(LifecycleNode):
         
         # Depth estimation
         Z = max(self.distance, 0.1)
+
+        width = np.abs(self.blackbox_xmax - self.blackbox_xmin)
+        height = np.abs(self.blackbox_ymax - self.blackbox_ymin)
+        ratio = width / height
+        ref_width = ratio * self.known_w 
+        f = (self.camera_matrix[0,0] + self.camera_matrix[1,1]) / 2.0
+        bw = max(0, self.blackbox_xmax - self.blackbox_xmin)
+        bh = max(0, self.blackbox_ymax - self.blackbox_ymin)
+        box_px = min(bw, bh) if bw and bh else bw
+        z = ref_width * f / float(box_px)
+        th = 0.1
+        rotate_speed = 0.2
+
+        if bw == 0 or bh == 0:
+            self.get_logger().info("box not detected")
+            return
+
+        if np.abs(width/height - 16/14) > th:
+            self.get_logger().info(f"need to rotate ratio:{ratio} ,current distance :{z}")
+            self.Camera_pwm['surge'] = 1500
+            self.Camera_pwm['sway']  = map_to_pwm(self.rotating_sway_factor * rotate_speed)
+            self.Camera_pwm['heave'] = map_to_pwm(self.floatability)
+            self.Camera_pwm['yaw']   = map_to_pwm(yaw_sign* self.rotating_yaw_factor * rotate_speed /z)
+            # self.Camera_pwm['yaw']   = 1500
+            self.Camera_pwm['pitch'] = 1500
+            self.Camera_pwm['roll']  = 1500
+            return
         
         # Determine if handle is currently detected by YOLO
         handle_detected = (self.handle_xcenter > 0 and self.handle_xmax > 0)
@@ -602,10 +650,7 @@ class VisionController(LifecycleNode):
         v_rov_4d[3] = np.clip(v_rov_4d[3], -self.v_angular_max, self.v_angular_max)
         
         # Apply inversion flags
-        surge_sign = -1.0 if self.invert_surge else 1.0
-        sway_sign = -1.0 if self.invert_sway else 1.0
-        heave_sign = -1.0 if self.invert_heave else 1.0
-        yaw_sign = -1.0 if self.invert_yaw else 1.0
+        
         self.Camera_pwm['surge'] = map_to_pwm(surge_sign * v_rov_4d[0])
         self.Camera_pwm['sway']  = map_to_pwm(sway_sign * v_rov_4d[1])
         self.Camera_pwm['heave'] = map_to_pwm(heave_sign * v_rov_4d[2] + self.floatability)
