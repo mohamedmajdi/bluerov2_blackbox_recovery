@@ -1,7 +1,7 @@
 import rclpy
 from rclpy.node import Node
 from time import sleep
-from mavros_msgs.srv import CommandLong
+from mavros_msgs.srv import CommandLong, SetMode 
 from mavros_msgs.msg import MountControl,OverrideRCIn
 from rcl_interfaces.srv import GetParameters
 from lifecycle_msgs.msg import Transition,State
@@ -14,6 +14,7 @@ from geometry_msgs.msg import TransformStamped
 from tf_transformations import quaternion_from_euler
 from tf2_ros import TransformBroadcaster
 import math
+
 class bluerov2_bringup(Node):
     def __init__(self):
         super().__init__("bluerov2_bringup")
@@ -58,6 +59,10 @@ class bluerov2_bringup(Node):
         self.pub_camera_anlge = self.create_publisher(MountControl, 'mount_control/command', qos_profile = 10)
         self.pub_msg_override = self.create_publisher(OverrideRCIn, 'rc/override', qos_profile =10)
 
+        ###### Clients ######
+        # Service client for setting MAVROS flight modes (namespaced to cmd/set_mode)
+        self.cli_set_mode = self.create_client(SetMode, 'cmd/set_mode')
+
         ###### Parameters ####
         self.declare_parameter("initialize", False)
         self.declare_parameter("lights_available", True)
@@ -72,8 +77,8 @@ class bluerov2_bringup(Node):
         self.declare_parameter("gripper_open", 1600.0)
         self.declare_parameter("gripper_close", 1300.0)
         self.declare_parameter("tilt_int", 0.0)
-        self.declare_parameter("tilt_max", 45.0)
-        self.declare_parameter("tilt_min", -45.0)
+        self.declare_parameter("tilt_max", 85.0)
+        self.declare_parameter("tilt_min", -85.0)
         self.declare_parameter("mode", "manual")
         self.declare_parameter("enable_gimbal", False)
 
@@ -203,30 +208,37 @@ class bluerov2_bringup(Node):
         
         if self.mode_change:
             self.get_logger().info(f"Mode changed to {self.mode}")
+            
             if self.mode == "correction":
+                # Toggle MAVROS to Alt Hold when entering correction mode
+                self.set_mav_mode("ALT_HOLD")
+                
                 # self.search_manager.deactivate()
                 # self.approaching_manger.deactivate()
                 self.vs_manager.deactivate()
-                self.depth_manager.activate()
-                self.yaw_manager.activate()
+                # self.depth_manager.activate()
+                # self.yaw_manager.activate()
 
-                self.depth_active = True
-                self.yaw_active = True
+                # self.depth_active = True
+                # self.yaw_active = True
                 # self.pitch_manager.activate()
                 # self.roll_manager.activate()
 
                 # if self.enable_gimbal:
                 #     self.gimbal_manager.activate()
             elif self.mode == "manual":
+                # Toggle MAVROS to Manual when entering manual mode
+                self.set_mav_mode("MANUAL")
+
                 self.surge_servoing, self.sway_servoing, self.heave_servoing, self.roll_servoing, self.pitch_servoing, self.yaw_servoing = 1500, 1500, 1500, 1500, 1500, 1500
 
                 # self.roll_manager.deactivate()
-                if self.depth_active:
-                    self.depth_manager.deactivate()
-                if self.yaw_active:
-                    self.yaw_manager.deactivate()
-                # self.pitch_manager.deactivate25.()
-                self.search_manager.deactivate()
+                # if self.depth_active:
+                #     self.depth_manager.deactivate()
+                # if self.yaw_active:
+                #     self.yaw_manager.deactivate()
+                # # self.pitch_manager.deactivate25.()
+                # self.search_manager.deactivate()
                 # self.approaching_manger.deactivate()
                 self.vs_manager.deactivate()
                 self.RC_pwms[0] = 1500
@@ -268,6 +280,19 @@ class bluerov2_bringup(Node):
               
 
             self.mode_change = False 
+
+    def set_mav_mode(self, custom_mode):
+        """Requests MAVROS to change flight mode."""
+        if self.cli_set_mode.service_is_ready():
+            req = SetMode.Request()
+            req.custom_mode = custom_mode
+            req.base_mode = 0
+            
+            self.get_logger().info(f"Requesting MAVROS mode: {custom_mode}")
+            future = self.cli_set_mode.call_async(req)
+            # Optional: Add callback to check result if needed
+        else:
+            self.get_logger().warn("SetMode service (cmd/set_mode) not ready!")
                
         
 

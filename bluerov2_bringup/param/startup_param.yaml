@@ -10,8 +10,8 @@
     gripper_closed: 1400.0
     gripper_open: 1600.0
     tilt_int: 0.0
-    tilt_max: 80.0
-    tilt_min: -80.0
+    tilt_max: 85.0
+    tilt_min: -85.0
     arm_at_startup: false
     mode: "manual"
     enable_gimbal: false

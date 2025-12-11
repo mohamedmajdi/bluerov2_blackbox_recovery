@@ -54,10 +54,17 @@ class GamepadTelop(Node):
         self.light = self.light_min
         self.tilt = self.tilt_int
         self.gripper = self.gripper_close
+        
+        # Track previous state of the Logitech button
+        self.prev_logitech_btn = 0
 
         self.pub_msg_override = self.create_publisher(UInt16MultiArray, "controller/manual", 10)
         self.pub_camera_anlge = self.create_publisher(MountControl, 'mount_control/command',10)
         self.pub_feedback_camera = self.create_publisher(Float64,"camera/angle",10)
+        
+        # New publisher for approaching status
+        self.pub_approaching = self.create_publisher(String, "visual_servoing/approaching", 10)
+
         qos_profile = QoSProfile(
             reliability=QoSReliabilityPolicy.BEST_EFFORT,
             history=QoSHistoryPolicy.KEEP_LAST,
@@ -104,12 +111,39 @@ class GamepadTelop(Node):
         btn_camera_servo_down = data.buttons[5] # RB button 
         btn_camera_rest = data.buttons[9] # R3 button 
 
+        # Logitech button is typically index 8 on F310
+        btn_logitech = data.buttons[8] 
+
         btn_gripper_close = data.axes[2] # LT button
         btn_gripper_open = data.axes[5] # RT button
 
         btn_light= data.axes[7] # right arrow
         # btn_light_down = data.axes[12] # left arrow
         
+
+        # --- Logitech Button "Approaching" Logic ---
+        msg = String()
+        if btn_logitech == 1:
+            # While pressed, send "allowed"
+            msg.data = "allowed"
+            self.pub_approaching.publish(msg)
+            # Optional: Log only if needed, otherwise it might spam the console
+            # self.get_logger().info("Approaching: allowed")
+
+        elif btn_logitech == 0 and self.prev_logitech_btn == 1:
+            # On release (falling edge), send "denied" and switch to manual
+            msg.data = "denied"
+            self.pub_approaching.publish(msg)
+            
+            # Switch back to manual mode
+            if self.mode != "manual":
+                self.mode = "manual"
+                self.get_logger().info("Logitech button released: Mode switched to manual")
+                self.set_parameters([Parameter('mode', Parameter.Type.STRING, self.mode)])
+
+        # Update previous button state
+        self.prev_logitech_btn = btn_logitech
+        # -------------------------------------------
 
 
         # Disarming when Back button is pressed
@@ -258,13 +292,18 @@ class GamepadTelop(Node):
 
         
         # Extract cmd_vel message
-        roll_left_right = self.mapValueScalSat(cmd_vel.angular.x)
+        # roll_left_right = self.mapValueScalSat(cmd_vel.angular.x)
+        # pitch_left_right = self.mapValueScalSat(cmd_vel.angular.y)
+
+        roll_left_right = 1500
+        pitch_left_right = 1500
+
+        
         yaw_left_right = self.mapValueScalSat(-cmd_vel.angular.z)
         ascend_descend = self.mapValueScalSat(cmd_vel.linear.z)
         forward_reverse = self.mapValueScalSat(cmd_vel.linear.x)
         # self.forward_reverse = forward_reverse
         lateral_left_right = self.mapValueScalSat(-cmd_vel.linear.y)
-        pitch_left_right = self.mapValueScalSat(cmd_vel.angular.y)
         # send the commands to the mthrusters 
         self.setPWM(pitch_left_right, roll_left_right, ascend_descend, yaw_left_right, forward_reverse,
                                 lateral_left_right)

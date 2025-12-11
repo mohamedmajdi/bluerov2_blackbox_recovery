@@ -54,10 +54,10 @@ def generate_launch_description():
                     'axis_angular.roll': 7,
                     'axis_angular.pitch': 6,
                     # Conditional scaling depending on sim flag
-                    'scale_linear.x': PythonExpression(["0.5 if '", sim, "' == 'true' else 0.2"]),
-                    'scale_linear.y': PythonExpression(["0.5 if '", sim, "' == 'true' else 0.2"]),
-                    'scale_linear.z': PythonExpression(["1.0 if '", sim, "' == 'true' else 0.4"]),
-                    'scale_angular.yaw': PythonExpression(["0.5 if '", sim, "' == 'true' else 0.2"]),
+                    'scale_linear.x': PythonExpression(["0.5 if '", sim, "' == 'true' else 0.4"]),
+                    'scale_linear.y': PythonExpression(["0.5 if '", sim, "' == 'true' else 0.4"]),
+                    'scale_linear.z': PythonExpression(["1.0 if '", sim, "' == 'true' else 0.6"]),
+                    'scale_angular.yaw': PythonExpression(["0.5 if '", sim, "' == 'true' else 0.4"]),
                     'scale_angular.roll': PythonExpression(["0.5 if '", sim, "' == 'true' else 0.2"]),
                     'scale_angular.pitch': PythonExpression(["0.5 if '", sim, "' == 'true' else 0.2"]),
 
