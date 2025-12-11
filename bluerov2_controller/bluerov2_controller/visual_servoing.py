@@ -66,8 +66,9 @@ class VisionController(LifecycleNode):
             # ('bringup_topic', 'controller/pwm_servoing'),
             ('control_rate', 20.0),
             ('rotating_yaw_factor',0.4),
-            ('aligned_threshold',0.03),
             ('rotating_sway_factor',1.0)
+            ('aligned_threshold', 0.03),
+            ('aligned_distance', 2.0),
         ):
             tp = ParameterType.PARAMETER_BOOL if isinstance(default, bool) else \
                  ParameterType.PARAMETER_DOUBLE if isinstance(default, float) else \
@@ -132,6 +133,8 @@ class VisionController(LifecycleNode):
 
         self.rotating_yaw_factor = 1.0
         self.rotating_sway_factor = 1.0
+        self.aligned_distance = 2.0
+
 
         self.get_logger().info("VisionController constructed")
 
@@ -311,6 +314,10 @@ class VisionController(LifecycleNode):
                 elif name == 'aligned_threshold':
                     self.aligned_threshold = val 
                     self.get_logger().info(f"aligned_threshold updated to {val}")
+                           
+                elif name == 'aligned_distance':
+                    self.aligned_distance = val 
+                    self.get_logger().info(f"aligned_distance updated to {val}")
                 # Reload calibration file on the fly
                 elif name == 'calib_file':
                     try:
@@ -363,6 +370,7 @@ class VisionController(LifecycleNode):
         self.rotating_sway_factor = self.get_parameter('rotating_sway_factor').value
         self.rotating_yaw_factor = self.get_parameter('rotating_yaw_factor').value
         self.aligned_threshold = self.get_parameter('aligned_threshold').value
+        self.aligned_distance = self.get_parameter('aligned_distance').value
         # self.send_to_bringup = self.get_parameter('send_to_bringup').value
 
     # ---------- control loop ----------
@@ -536,7 +544,7 @@ class VisionController(LifecycleNode):
         if not self.aligned and np.abs(width/height - 16/14) > th:
         #if np.abs(width/height - 16/14) > th:
             self.get_logger().info(f"need to rotate ratio:{ratio} ,current distance :{z}")
-            if z > 2.0:
+            if z > self.aligned_distance:
                 self.Camera_pwm['surge'] = 1550
                 self.Camera_pwm['sway']  = 1500
                 self.Camera_pwm['heave'] = 1500
@@ -676,9 +684,14 @@ class VisionController(LifecycleNode):
         v_rov_4d[3] = np.clip(v_rov_4d[3], -self.v_angular_max, self.v_angular_max)
         
         # Apply inversion flags
-        
+        if handle_detected:
+            sway_speed = (self.blackbox_xcenter - self.handle_xcenter) * self.gains[0]
+        else:
+            sway_speed = 0.0
         self.Camera_pwm['surge'] = map_to_pwm(surge_sign * v_rov_4d[0])
-        self.Camera_pwm['sway']  = map_to_pwm(sway_sign * v_rov_4d[1])
+        # self.Camera_pwm['sway']  = map_to_pwm(sway_sign * v_rov_4d[1])
+        self.Camera_pwm['sway']  = map_to_pwm(sway_sign * sway_speed)
+        
         self.Camera_pwm['heave'] = map_to_pwm(heave_sign * v_rov_4d[2] + self.floatability)
         self.Camera_pwm['yaw']   = map_to_pwm(yaw_sign * v_rov_4d[3])
         self.Camera_pwm['pitch'] = 1500

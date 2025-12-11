@@ -34,12 +34,12 @@ bluerov2:
       # -----------------------------
       #  INPUT 2: IMU
       # -----------------------------
-      imu0: "imu/data"
+      imu0: "imu/data_republished"
       imu0_config: [
         false, false, false,
-        true,  true,  true,
+        false,  false,  true,
         false, false, false,
-        true,  true,  true
+        false,  false,  false
       ]
       imu0_differential: false
       imu0_relative: false

@@ -24,7 +24,7 @@ class ImuFrameRepublisher(Node):
         # Even if this data says frame_id="base_link", we will capture it here.
         self.subscription = self.create_subscription(
             Imu,
-            '/imu/data',
+            'imu/data',
             self.imu_callback,
             qos_profile
         )
@@ -32,7 +32,7 @@ class ImuFrameRepublisher(Node):
         # 3. Publisher: Sends out the fixed message with the new frame_id
         self.publisher = self.create_publisher(
             Imu,
-            '/imu/data_republished',
+            'imu/data_republished',
             qos_profile
         )
 
@@ -47,8 +47,10 @@ class ImuFrameRepublisher(Node):
         new_msg.orientation = msg.orientation
         new_msg.orientation_covariance = msg.orientation_covariance
         new_msg.angular_velocity = msg.angular_velocity
+        # new_msg.angular_velocity.z = -msg.angular_velocity.z
         new_msg.angular_velocity_covariance = msg.angular_velocity_covariance
         new_msg.linear_acceleration = msg.linear_acceleration
+
         new_msg.linear_acceleration_covariance = msg.linear_acceleration_covariance
         
         # CRITICAL FIX: Overwrite the frame_id

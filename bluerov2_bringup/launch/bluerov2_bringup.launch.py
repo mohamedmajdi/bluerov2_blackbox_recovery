@@ -39,10 +39,15 @@ def generate_launch_description():
         default_value=param_file_path,
         description='Path to startup parameters yaml'
     )
+    camera_param_file_arg =  DeclareLaunchArgument(
+        'calb_file',
+        default_value=camera_param_file_path,
+        description='Path to camera parameters'
+    )
 
     params_file = LaunchConfiguration('params_file')
     initialize = LaunchConfiguration('initialize')
-
+    calb_file = LaunchConfiguration('calb_file')
     video_node = Node(
         package='bluerov2_bringup',
         executable='video',
@@ -94,7 +99,7 @@ def generate_launch_description():
         PythonLaunchDescriptionSource(
             os.path.join(controller_pkg, 'launch', 'bluerov2_visual_servoing.launch.py')
         ),
-        launch_arguments={'namespace': ns,'calib_file':camera_param_file_path}.items()
+        launch_arguments={'namespace': ns,'calib_file':calb_file}.items()
     )
     searching_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
@@ -114,6 +119,7 @@ def generate_launch_description():
         with_camera_arg,
         init_arg,
         params_file_arg,
+        camera_param_file_arg,
         video_node,
         startup_node,
         controllers_launch,
