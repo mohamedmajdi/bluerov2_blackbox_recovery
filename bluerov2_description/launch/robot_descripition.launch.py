@@ -23,8 +23,8 @@ def generate_launch_description():
     robot_description_cirtesu = os.popen(f'xacro {description_file_cirtesu}').read().strip()
     description_file_bluerov2 = os.path.join(
         urdf_path, 
-        'bluerov2_alpha', 
-        'bluerov2_alpha.xacro'
+        'bluerov2_heavy', 
+        'bluerov2.xacro'
     )
     robot_description_bluerov2 = os.popen(f'xacro {description_file_bluerov2}').read().strip()
 
@@ -83,21 +83,21 @@ def generate_launch_description():
                 "--child-frame-id", "cirtesu_tank"
             ]
         )
-    world_ned_odom_static_tf = Node(
-            package='tf2_ros',
-            executable='static_transform_publisher',
-            output='screen',
-            arguments=[
-                "--x", "0.0",
-                "--y", "0.0",
-                "--z", "0.0",
-                "--roll", "0.0",
-                "--pitch", "0",
-                "--yaw", "0.0",
-                "--frame-id", "ned",
-                "--child-frame-id", "odom"
-            ]
-        )
+    # world_ned_odom_static_tf = Node(
+    #         package='tf2_ros',
+    #         executable='static_transform_publisher',
+    #         output='screen',
+    #         arguments=[
+    #             "--x", "0.0",
+    #             "--y", "0.0",
+    #             "--z", "0.0",
+    #             "--roll", "0.0",
+    #             "--pitch", "0",
+    #             "--yaw", "0.0",
+    #             "--frame-id", "ned",
+    #             "--child-frame-id", "odom"
+    #         ]
+    #     )
     
     camera_robot_static_tf = Node(
         condition=IfCondition(use_camera_tf),
@@ -138,7 +138,7 @@ def generate_launch_description():
         robot_state_publisher_node_bluerov2,
         robot_state_publisher_node_cirtesu,
         cirtesu_static_tf,
-        world_ned_odom_static_tf,
+        # world_ned_odom_static_tf,
         camera_robot_static_tf,
         rviz_node,
         robot_state_publisher_node_blackbox

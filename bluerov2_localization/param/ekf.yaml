@@ -22,14 +22,14 @@ bluerov2:
       pose0: "aruco_odom"
       pose0_config: [
         true,  true,  true,
-        false,  false,  false,
+        true,  true,  true,
         false, false, false,
         false, false, false
       ]
       pose0_differential: false
       pose0_relative: false
-      pose0_pose_rejection_threshold: 50.0
-      pose0_twist_rejection_threshold: 50.0
+      pose0_pose_rejection_threshold: 3.0
+      pose0_twist_rejection_threshold: 3.0
 
       # -----------------------------
       #  INPUT 2: IMU
@@ -44,9 +44,9 @@ bluerov2:
       imu0_differential: false
       imu0_relative: false
       imu0_remove_gravitational_acceleration: true
-      imu0_pose_rejection_threshold: 50.0
-      imu0_twist_rejection_threshold: 50.0
-      imu0_linear_acceleration_rejection_threshold: 50.0
+      imu0_pose_rejection_threshold: 3.0
+      imu0_twist_rejection_threshold: 3.0
+      imu0_linear_acceleration_rejection_threshold: 3.0
       # imu0_reliability: best_effort
 
       # -----------------------------
@@ -59,7 +59,7 @@ bluerov2:
         false, false, false,
         false, false, false
       ]
-      pose1_pose_rejection_threshold: 50.0
+      pose1_pose_rejection_threshold: 3.0
       pose1_differential: false
       pose1_relative: false
       # -----------------------------
@@ -74,7 +74,7 @@ bluerov2:
       ]
       odom0_differential: false
       odom0_relative: true
-      odom0_pose_rejection_threshold: 5.0
+      odom0_pose_rejection_threshold: 1.0
       odom0_twist_rejection_threshold: 3.0
 
       # -----------------------------

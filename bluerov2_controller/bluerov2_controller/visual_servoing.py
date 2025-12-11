@@ -31,8 +31,8 @@ class VisionController(LifecycleNode):
         self.declare_parameter('calib_file', 'camera_params.npz',
                                ParameterDescriptor(description='npz with camera calibration', type=ParameterType.PARAMETER_STRING))
         self.declare_parameter('desired_point_x', -1.0, ParameterDescriptor(type=ParameterType.PARAMETER_DOUBLE))
-        self.declare_parameter('desired_point_y', 400.0, ParameterDescriptor(type=ParameterType.PARAMETER_DOUBLE))
-        self.declare_parameter('desired_point_z', 0.5, ParameterDescriptor(type=ParameterType.PARAMETER_DOUBLE))
+        self.declare_parameter('desired_point_y', 250.0, ParameterDescriptor(type=ParameterType.PARAMETER_DOUBLE))
+        self.declare_parameter('desired_point_z', 0.8, ParameterDescriptor(type=ParameterType.PARAMETER_DOUBLE))
 
         self.declare_parameter('fast_surge', False,
             ParameterDescriptor(description='Enable fast surge when close to the handle',
@@ -43,18 +43,18 @@ class VisionController(LifecycleNode):
             # ('gain_sway', 0.3),
             # ('gain_heave', 3.3),
             # ('gain_yaw', 14.2),
-            ('gain_surge', 1.5),
-            ('gain_sway', 0.3),
-            ('gain_heave', 3.3),
-            ('gain_yaw', 7.0),
+            ('gain_surge', 1.0),
+            ('gain_sway', 0.04),
+            ('gain_heave', 5.0),
+            ('gain_yaw', 25.0),
             ('v_linear_max', 0.15),
-            ('v_angular_max', 0.6),
+            ('v_angular_max', 0.1),
             # ('floatability', -0.125),
             ('floatability', 0.0),
             ('invert_surge', False),
-            ('invert_sway', False),
+            ('invert_sway', True),
             ('invert_heave', True),
-            ('invert_yaw', True),
+            ('invert_yaw', False),
             ('enable_visual_servoing', True),
             ('track_handle', False),
             ('enable_of_tracking', True),
@@ -66,9 +66,9 @@ class VisionController(LifecycleNode):
             # ('bringup_topic', 'controller/pwm_servoing'),
             ('control_rate', 20.0),
             ('rotating_yaw_factor',0.4),
-            ('rotating_sway_factor',1.0)
-            ('aligned_threshold', 0.03),
-            ('aligned_distance', 2.0),
+            ('rotating_sway_factor',1.0),
+            ('aligned_threshold', 0.3),
+            ('aligned_distance', 1.0),
         ):
             tp = ParameterType.PARAMETER_BOOL if isinstance(default, bool) else \
                  ParameterType.PARAMETER_DOUBLE if isinstance(default, float) else \
@@ -477,7 +477,7 @@ class VisionController(LifecycleNode):
             if self.attachment_start_time is None:
                 self.attachment_start_time = time.time()           
                 self.gains[2] = 1.0  # Increase surge gain
-                self.attachment_duration = 1.5  # seconds
+                self.attachment_duration = 5.0 # seconds
                 self.attachment_speed = 0.5  # m/s
 
             elapsed = time.time() - self.attachment_start_time
@@ -684,6 +684,9 @@ class VisionController(LifecycleNode):
         v_rov_4d[3] = np.clip(v_rov_4d[3], -self.v_angular_max, self.v_angular_max)
         
         # Apply inversion flags
+
+        
+
         if handle_detected:
             sway_speed = (self.blackbox_xcenter - self.handle_xcenter) * self.gains[0]
         else:

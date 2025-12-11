@@ -18,7 +18,7 @@ class CameraInfoPublisher(Node):
         try:
             # Get the package share directory
             pkg_share = get_package_share_directory(package_name)
-            default_file_path = os.path.join(pkg_share, 'config', 'camera_calibration_19_11.npz')
+            default_file_path = os.path.join(pkg_share, 'config', 'camera_calb_20_11.npz')
         except Exception as e:
             # Fallback for testing without installing the package
             self.get_logger().warn(f"Could not find package '{package_name}': {e}. Falling back to local 'config' folder.")

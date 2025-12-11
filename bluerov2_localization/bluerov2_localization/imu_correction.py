@@ -45,8 +45,12 @@ class ImuFrameRepublisher(Node):
         # Copy all sensor data from the original message
         new_msg.header = msg.header
         new_msg.orientation = msg.orientation
+        new_msg.orientation.y = -msg.orientation.y
+        new_msg.orientation.z = -msg.orientation.z
         new_msg.orientation_covariance = msg.orientation_covariance
         new_msg.angular_velocity = msg.angular_velocity
+        new_msg.angular_velocity.y = -msg.angular_velocity.y    
+        new_msg.angular_velocity.z = msg.angular_velocity.z
         # new_msg.angular_velocity.z = -msg.angular_velocity.z
         new_msg.angular_velocity_covariance = msg.angular_velocity_covariance
         new_msg.linear_acceleration = msg.linear_acceleration

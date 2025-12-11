@@ -6,14 +6,14 @@
     y_min: 1.0
     y_max: 7.0
     spacing: 1.5
-    input_topic: "/bluerov/navigator/odometry"
+    input_topic: "aruco_odom"
     output_yaw_topic: "desired_yaw"
     output_surge_topic: "searching/surge_force"
     rate: 10.0
     surge_force: 10.0 
     switching_th: 0.5
     yaw_offset: 3.1415
-    stonefish: True
+    stonefish: false
     invert_surge: True
     desired_depth: 2.5
     depth_status_topic: "controller/depth_status"

@@ -10,6 +10,8 @@ import numpy as np
 from rcl_interfaces.msg import SetParametersResult
 from nav_msgs.msg import Odometry
 import math 
+from geometry_msgs.msg import PoseArray, TransformStamped, PoseWithCovarianceStamped
+
 
 from geometry_msgs.msg import PoseStamped
 
@@ -38,7 +40,7 @@ class SearchingPattern(LifecycleNode):
         self.declare_parameter('desired_depth',2.5)
         self.declare_parameter('depth_topic','desired_depth')
         self.declare_parameter('depth_status_topic','controller/depth_status')
-        self.declare_parameter('box_detection_topic','/box_pose')
+        self.declare_parameter('box_detection_topic','detection')
 
         self.add_on_set_parameters_callback(self._on_set_parameters)
 
@@ -115,7 +117,7 @@ class SearchingPattern(LifecycleNode):
         )
 
         self._input_sub = self.create_subscription(
-            Odometry,
+            PoseWithCovarianceStamped,
             self._input_topic,
             self._get_robot_pose,
             qos_profile=qos_profile

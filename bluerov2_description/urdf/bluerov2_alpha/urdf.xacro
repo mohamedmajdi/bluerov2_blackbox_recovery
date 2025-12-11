@@ -23,7 +23,7 @@
       </inertial>
     </link>
 
-    <link name="${prefix}ballast_link">
+    <!-- <link name="${prefix}ballast_link">
       <inertial>
         <mass value="0.0001" />
         <inertia
@@ -35,10 +35,7 @@
           izz="0.0001"
         />
       </inertial>
-      <!-- Split the collision into four boxes so that
-      we can adjust each one to balance things out -->
 
-      <!-- Front left -->
       <collision>
         <geometry>
           <box size="0.2285 0.2875 0.015" />
@@ -46,7 +43,6 @@
         <origin rpy="0 0 0" xyz="0.11425 0.14375 0.08" />
       </collision>
 
-      <!-- Front right -->
       <collision>
         <geometry>
           <box size="0.2285 0.2875 0.035" />
@@ -54,14 +50,13 @@
         <origin rpy="0 0 0" xyz="0.11425 -0.14375 0.08" />
       </collision>
 
-      <!-- Back right -->
       <collision>
         <geometry>
           <box size="0.2285 0.2875 0.005" />
         </geometry>
         <origin rpy="0 0 0" xyz="-0.11425 -0.14375 0.08" />
       </collision>
-    </link>
+    </link> -->
 
     <joint name="${prefix}manipulator_mount_joint" type="fixed">
       <origin rpy="0 0 -1.57" xyz="0.105 -0.21 0.07" />
@@ -69,15 +64,13 @@
       <child link="${prefix}manipulator_mount_link" />
     </joint>
 
-    <joint name="${prefix}ballast_joint" type="fixed">
+    <!-- <joint name="${prefix}ballast_joint" type="fixed">
       <origin rpy="0 0 0" xyz="0 0 0" />
       <parent link="${prefix}base_link" />
       <child link="${prefix}ballast_link" />
-    </joint>
+    </joint> -->
 
     <!-- Imports -->
-    <!-- <xacro:include filename="$(find alpha_description)/xacro/alpha.urdf.xacro" /> -->
-    <xacro:include filename="$(find bluerov2_cirtesu_core)/urdf/bluerov2_heavy/urdf_payload.xacro" />
 
     <!-- Instantiate the Alpha -->
     <!-- <xacro:alpha_urdf

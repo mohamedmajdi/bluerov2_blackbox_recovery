@@ -110,7 +110,7 @@ class BlueROVDeadReckoning(Node):
 
 
         # HIGH covariance (low confidence)
-        self.cov = 0.01
+        self.cov = 10.0
         self.pose_cov = (np.eye(6) * self.cov).flatten().tolist()
         self.twist_cov = (np.eye(6) * self.cov).flatten().tolist()
 

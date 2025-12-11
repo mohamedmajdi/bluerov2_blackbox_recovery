@@ -10,7 +10,7 @@
   <xacro:arg name="namespace" default="bluerov/" />
   <xacro:arg name="prefix" default="" />
   <xacro:arg name="use_sim" default="true" />
-  <xacro:arg name="description_package" default="bluerov2_cirtesu_core" />
+  <xacro:arg name="description_package" default="bluerov2_description" />
 
   <!-- Properties -->
   <xacro:property name="description_package" value="$(arg description_package)" />
@@ -20,8 +20,8 @@
   <!-- Imports -->
   <xacro:include
     filename="$(find ${description_package})/urdf/bluerov2_alpha/urdf.xacro" />
-  <xacro:include
-    filename="$(find alpha_description)/xacro/alpha.ros2_control.xacro" />
+  <!-- <xacro:include
+    filename="$(find alpha_description)/xacro/alpha.ros2_control.xacro" /> -->
 
   <xacro:bluerov2_heavy_alpha_urdf
     prefix="${prefix}" />

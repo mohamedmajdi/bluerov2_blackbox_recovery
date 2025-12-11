@@ -23,7 +23,7 @@ def generate_launch_description():
             executable='static_transform_publisher',
             name='ned_to_robot_ned_static_tf',
             namespace=namespace,
-            arguments=['0.0', '0.0','0.0',str(3.14159*170/180), '0', '0', 'base_link', 'imu_link'],
+            arguments=['0.0', '0.0','0.0',str(3.14159265359*180/180), '0', '0', 'base_link', 'imu_link'],
             output='screen'
         ),
 
