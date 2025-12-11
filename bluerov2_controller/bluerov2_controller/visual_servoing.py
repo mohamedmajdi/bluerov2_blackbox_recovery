@@ -60,7 +60,7 @@ class VisionController(LifecycleNode):
             ('enable_of_tracking', True),
             # ('send_to_bringup', False),
              ('image_topic', 'camera/image'),
-            #('image_topic', '/bluerov/camera/image_color'),
+            # ('image_topic', '/bluerov/camera/image_color'),
             ('detections_topic', 'detections'),
             ('pwm_topic', 'controller/pwm_servoing'),
             # ('bringup_topic', 'controller/pwm_servoing'),

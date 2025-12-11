@@ -26,8 +26,6 @@ model:
   #weights_path: "weights/finale_dec10.pt"
   weights_path: "weights/best_pb.pt"
   #weights_path: "weights/dec5.pt"
-  #weights_path: "weights/sim.pt"
-  
   # Device: "cpu" or "0" (for GPU)
   device: 0
  
