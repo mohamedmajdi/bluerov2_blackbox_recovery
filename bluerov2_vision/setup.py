@@ -15,6 +15,7 @@ setup(
         (os.path.join('share', package_name, 'config'), ['config/detection_config.yaml']),
         (os.path.join('share', package_name, 'weights'), glob('weights/*.pt')),
         (os.path.join('share', package_name, 'launch'), glob('launch/*.py')),
+        (os.path.join('share', package_name, 'config'), glob('config/*')),
 
     ],
     install_requires=['setuptools'],
