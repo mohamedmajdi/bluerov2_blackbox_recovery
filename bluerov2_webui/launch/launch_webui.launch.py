@@ -8,7 +8,7 @@ def generate_launch_description():
 
         # Start classic detection node
         Node(
-            package='bluerov2_webUI',
+            package='bluerov2_webui',
             executable='webui',
             name='webui_node',
             output='screen'

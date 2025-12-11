@@ -13,6 +13,7 @@ setup(
             ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
         (os.path.join('share', package_name, 'config'), glob('config/*.yaml')),
+        (os.path.join('share', package_name, 'config'), glob('config/*.npz')),
         (os.path.join('share', package_name, 'weights'), glob('weights/*.pt')),
         (os.path.join('share', package_name, 'launch'), glob('launch/*.py')),
 
@@ -34,7 +35,7 @@ setup(
             'webcam = bluerov2_vision.camera_node:main',
             'orientation = bluerov2_vision.orientation_node:main',
             'aruco = bluerov2_vision.aruco_node:main',
-            'classic_detection = bluerov2_vision.classic_detection:main',
+            'camera_info_publisher = bluerov2_vision.CameraInfo_node:main',
         ],
     },
 )

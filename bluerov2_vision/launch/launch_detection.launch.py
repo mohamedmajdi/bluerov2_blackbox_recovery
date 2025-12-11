@@ -20,4 +20,11 @@ def generate_launch_description():
             name='orientation_node',
             output='screen'
         ),
+        # Start camera info publisher node
+        Node(
+            package='bluerov2_vision',
+            executable='camera_info_publisher',
+            name='camera_info_publisher_node',
+            output='screen'
+        ),
     ])
