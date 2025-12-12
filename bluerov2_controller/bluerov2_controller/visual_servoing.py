@@ -5,7 +5,7 @@ from rclpy.lifecycle import State, TransitionCallbackReturn
 from rclpy.executors import SingleThreadedExecutor
 from rclpy.qos import QoSProfile, QoSReliabilityPolicy, QoSHistoryPolicy
 from rcl_interfaces.msg import ParameterDescriptor, ParameterType, SetParametersResult
-from std_msgs.msg import Int16MultiArray, UInt16MultiArray, String
+from std_msgs.msg import Int16MultiArray, UInt16MultiArray, String,Float64
 from sensor_msgs.msg import Image
 from bluerov2_interface.msg import Detection
 from cv_bridge import CvBridge
@@ -13,26 +13,10 @@ import numpy as np
 import cv2
 import time
 
-# --- Helper: Map to PWM with Deadzone Compensation ---
-def map_to_pwm(value: float, deadzone_offset: int = 25) -> int:
-    """
-    Map -1..1 to 1100..1900.
-    Adds a 'deadzone_offset' jump to ensure thrusters actually spin 
-    for small non-zero values (T200 usually needs ~25us offset).
-    """
-    if abs(value) < 0.001:
-        return 1500
-    
-    # Base PWM calculation
-    pw_offset = value * 400.0
-    
-    # Add deadzone jump
-    if pw_offset > 0:
-        pw_offset += deadzone_offset
-    elif pw_offset < 0:
-        pw_offset -= deadzone_offset
-        
-    pw = 1500.0 + pw_offset
+# --- minimal helper: clamp & map to pwm ---
+def map_to_pwm(value: float) -> int:
+    """Map -1..1 to 1100..1900 and clamp to integers."""
+    pw = value * 400.0 + 1500.0
     pw = max(1100.0, min(1900.0, pw))
     return int(pw)
 
@@ -43,7 +27,7 @@ class VisionController(LifecycleNode):
         self.attachment_start_time = None
         self.fast_surge = False
         
-        # Integral State for Surge
+        # Integral State
         self.z_integral = 0.0
         self.last_time = time.time()
 
@@ -60,12 +44,14 @@ class VisionController(LifecycleNode):
 
         for name, default in (
             ('gain_surge', 1.0),
-            ('gain_surge_integral', 0.2), # Integral gain for surge
-            ('integral_limit', 0.5),      # Limit for integral term (anti-windup)
+            ('gain_surge_integral', 0.0), # Added Integral Gain
+            ('integral_limit', 0.5),      # Added Integral Limit
             ('gain_sway', 0.04),
             ('gain_heave', 5.0),
             ('gain_yaw', 25.0),
             ('v_linear_max', 0.15),
+            ('v_surge_max', 0.08),
+            ('v_sway_max', 0.1),
             ('v_angular_max', 0.1),
             ('floatability', 0.0),
             ('invert_surge', False),
@@ -78,12 +64,11 @@ class VisionController(LifecycleNode):
              ('image_topic', 'camera/image'),
             ('detections_topic', 'detections'),
             ('pwm_topic', 'controller/pwm_servoing'),
-            ('control_rate', 20.0),
+            ('control_rate', 1.0),
             ('rotating_yaw_factor',0.4),
             ('rotating_sway_factor',1.0),
             ('aligned_threshold', 0.3),
             ('aligned_distance', 1.0),
-            ('attachment_speed',0.5),
         ):
             tp = ParameterType.PARAMETER_BOOL if isinstance(default, bool) else \
                  ParameterType.PARAMETER_DOUBLE if isinstance(default, float) else \
@@ -104,7 +89,10 @@ class VisionController(LifecycleNode):
         self.gain_surge_integral = 0.0
         self.integral_limit = 0.5
         
-        self.v_linear_max = 0.3
+        self.v_linear_max = 0.15
+        self.v_surge_max = 0.08
+        self.v_sway_max = 0.15
+        
         self.v_angular_max = 0.5
         self.floatability = -0.18
         self.invert_surge = False
@@ -140,9 +128,10 @@ class VisionController(LifecycleNode):
         self.pub_pwm_vs = None           
         self.sub_image = None
         self.sub_detect = None
-        self.sub_approaching = None      # Subscriber for approaching trigger
+        self.sub_approaching = None 
+        self.depth_sub = None
         self._timer = None
-        self.rate = 20.0
+        self.rate = 1.0
         self.tracking_mode = None
         self.known_w = 0.14
 
@@ -152,7 +141,8 @@ class VisionController(LifecycleNode):
         self.rotating_sway_factor = 1.0
         self.aligned_distance = 2.0
         self.handel_offset = 0.0
-        self.attachment_speed = 0.5
+        self.depth =0.0
+
         self.get_logger().info("VisionController constructed")
 
     # ---------- lifecycle callbacks ----------
@@ -198,8 +188,14 @@ class VisionController(LifecycleNode):
         qos = QoSProfile(reliability=QoSReliabilityPolicy.RELIABLE, history=QoSHistoryPolicy.KEEP_LAST, depth=10)
         self.sub_image = self.create_subscription(Image,self.get_parameter('image_topic').value, self.image_callback, qos_profile=qos)
         self.sub_detect = self.create_subscription(Detection, self.get_parameter('detections_topic').value, self.color_video_tracking_callback, 10)
-        # Subscribe to approaching topic
-        self.sub_approaching = self.create_subscription(String, "visual_servoing/approaching", self.approaching_callback, 10)
+        self.depth_sub = self.create_subscription(
+            Float64,
+            "global_position/rel_alt",
+            self.rel_alt_callback,
+            qos_profile=qos
+        )
+        # Added approaching subscriber
+        self.sub_approaching = self.create_subscription(String, "approaching", self.approaching_callback, 10)
 
         self.rate = float(self.get_parameter('control_rate').value)
         self._timer = self.create_timer(1.0 / self.rate, self._control_loop)
@@ -214,8 +210,7 @@ class VisionController(LifecycleNode):
         self.handle_xmin = self.handle_xmax = self.handle_xcenter = 0
         self.handle_ymin = self.handle_ymax = self.handle_ycenter = 0
         self.aligned = False
-        
-        # Reset State
+        # OF tracker
         self.track_points = None
         self.prev_gray = None
         self.roi_w = self.roi_h = 0
@@ -236,6 +231,8 @@ class VisionController(LifecycleNode):
             self.destroy_subscription(self.sub_detect); self.sub_detect = None
         if self.sub_approaching:
             self.destroy_subscription(self.sub_approaching); self.sub_approaching = None
+        if self.depth_sub:
+            self.destroy_subscription(self.depth_sub); self.depth_sub = None
         return TransitionCallbackReturn.SUCCESS
 
     def on_cleanup(self, state: State) -> TransitionCallbackReturn:
@@ -247,10 +244,11 @@ class VisionController(LifecycleNode):
     def on_shutdown(self, state: State) -> TransitionCallbackReturn:
         self.get_logger().info("Shutting down VisionController...")
         return TransitionCallbackReturn.SUCCESS
-    
+
     # ---------- Approaching Callback ----------
+    def rel_alt_callback(self,msg:Float64):
+        self.depth = -msg.data
     def approaching_callback(self, msg: String):
-        """Handle approaching signal from joystick"""
         if msg.data == "allowed":
             if not self.fast_surge:
                 self.fast_surge = True
@@ -290,6 +288,9 @@ class VisionController(LifecycleNode):
                 elif name == 'fast_surge': self.fast_surge = p.value
                 elif name == 'enable_of_tracking': self.enable_of_tracking = val
                 elif name == 'v_linear_max': self.v_linear_max = val
+                elif name == 'v_surge_max': self.v_surge_max = val
+                elif name == 'v_sway_max': self.v_sway_max = val
+
                 elif name == 'v_angular_max': self.v_angular_max = val
                 elif name == 'invert_surge': self.invert_surge = val
                 elif name == 'invert_sway': self.invert_sway = val
@@ -300,7 +301,6 @@ class VisionController(LifecycleNode):
                 elif name == 'aligned_threshold': self.aligned_threshold = val 
                 elif name == 'aligned_distance': self.aligned_distance = val 
                 elif name == 'handel_offset': self.handel_offset = val
-                elif name == 'attachment_speed': self.attachment_speed = val
                 elif name == 'calib_file':
                     try:
                         data = np.load(val)
@@ -341,6 +341,10 @@ class VisionController(LifecycleNode):
         self.integral_limit = self.get_parameter('integral_limit').value
 
         self.v_linear_max = self.get_parameter('v_linear_max').value
+        self.v_surge_max = self.get_parameter('v_surge_max').value
+        self.v_sway_max = self.get_parameter('v_sway_max').value
+
+
         self.v_angular_max = self.get_parameter('v_angular_max').value
         self.floatability = self.get_parameter('floatability').value
         self.invert_surge = self.get_parameter('invert_surge').value
@@ -356,7 +360,7 @@ class VisionController(LifecycleNode):
         self.aligned_threshold = self.get_parameter('aligned_threshold').value
         self.aligned_distance = self.get_parameter('aligned_distance').value
         self.handel_offset = self.get_parameter('handel_offset').value
-        self.attachment_speed = self.get_parameter('attachment_speed').value
+
     # ---------- control loop ----------
     def _control_loop(self):
         """Publishes PWM messages based on current Camera_pwm state."""
@@ -404,7 +408,7 @@ class VisionController(LifecycleNode):
 
     def color_video_tracking_callback(self, msg):
         """
-        Visual servoing callback with PI control, deadzone comp, and fast surge.
+        Visual servoing callback for BlueROV control.
         """
         # Calculate DT for integration
         current_time = time.time()
@@ -417,25 +421,31 @@ class VisionController(LifecycleNode):
         yaw_sign = -1.0 if self.invert_yaw else 1.0
 
         if not self.enable_visual_servoing:
-            self.Camera_pwm.update({k:1500 for k in self.Camera_pwm})
+            self.Camera_pwm['surge'] = 1500
+            self.Camera_pwm['sway']  = 1500
+            self.Camera_pwm['heave'] = 1500
+            self.Camera_pwm['yaw']   = 1500
+            self.Camera_pwm['pitch'] = 1500
+            self.Camera_pwm['roll']  = 1500
             self.tracking_mode = "DISABLED"
             self.z_integral = 0.0 # Reset
             return
         
-        # --- Fast Surge Logic ---
+        # fast surge when close to the handle
         if self.fast_surge:
+
             if self.attachment_start_time is None:
                 self.attachment_start_time = time.time()           
                 self.gains[2] = 1.0 
                 self.attachment_duration = 5.0
-                # self.attachment_speed = 0.5 
+                self.attachment_speed = 0.5 
 
             elapsed = time.time() - self.attachment_start_time
 
             if elapsed < self.attachment_duration:
                 self.Camera_pwm['surge'] = map_to_pwm(self.attachment_speed)
                 self.Camera_pwm['sway'] = 1500
-                self.Camera_pwm['heave'] = 1500
+                self.Camera_pwm['heave'] = map_to_pwm(self.floatability)
                 self.Camera_pwm['yaw'] = 1500
                 self.tracking_mode = "ATTACHING"
                 return
@@ -446,10 +456,10 @@ class VisionController(LifecycleNode):
         else:
             if self.attachment_start_time is not None:
                 self.attachment_start_time = None
-                self.gains[2] = self.get_parameter('gain_surge').value
-                self.get_logger().warn("Fast surge interrupted")
+                self.gains[2] = self.get_parameter('gain_surge').value 
+                self.get_logger().warn("Fast surge interrupted, resuming normal tracking")
 
-        # --- Detection Data ---
+        # Extract detection data
         self.blackbox_xmin = msg.blackbox_xmin
         self.blackbox_xmax = msg.blackbox_xmax
         self.blackbox_xcenter = msg.blackbox_xcenter
@@ -468,10 +478,10 @@ class VisionController(LifecycleNode):
         
         width = np.abs(self.blackbox_xmax - self.blackbox_xmin)
         height = np.abs(self.blackbox_ymax - self.blackbox_ymin)
-        
+
         # --- LOSS OF TRACKING RESET ---
         if width == 0 or height == 0:
-            self.get_logger().info("Box lost - Resetting Integral")
+            self.get_logger().info("box not detected")
             self.z_integral = 0.0 # Reset
             return
 
@@ -482,33 +492,33 @@ class VisionController(LifecycleNode):
         bh = max(0, self.blackbox_ymax - self.blackbox_ymin)
         box_px = min(bw, bh) if bw and bh else bw
         z = ref_width * f / float(box_px)
+        th = self.aligned_threshold
+        rotate_speed = 0.2
         self.distance = z
         Z = max(self.distance, 0.1)
 
-        # --- Alignment Rotation ---
-        if not self.aligned and np.abs(width/height - 16/14) > self.aligned_threshold:
-            self.get_logger().info(f"Rotating to align. Ratio:{ratio:.2f}")
+        if not self.aligned and np.abs(width/height - 16/14) > th and not handle_detected and self.depth <= 4.3:
+            self.get_logger().info(f"need to rotate ratio:{ratio} ,current distance :{z}")
             if z > self.aligned_distance:
-                self.Camera_pwm['surge'] = 1550
+                self.Camera_pwm['surge'] = 1530
                 self.Camera_pwm['sway']  = 1500
                 self.Camera_pwm['heave'] = 1500
                 self.Camera_pwm['yaw']   = 1500
             else:
-                rotate_speed = 0.2
                 self.Camera_pwm['surge'] = 1500
                 self.Camera_pwm['sway']  = map_to_pwm(self.rotating_sway_factor * rotate_speed)
                 self.Camera_pwm['heave'] = map_to_pwm(self.floatability)
                 self.Camera_pwm['yaw']   = map_to_pwm(yaw_sign* self.rotating_yaw_factor * rotate_speed)
             
-            # Reset integral during rotation as we aren't actively surging to target
-            self.z_integral = 0.0 
+            self.z_integral = 0.0 # Reset integral while rotating
             return
         else:
-            self.aligned = True
+            if self.depth > 4.3:
+                self.aligned = True
         
          # ============ MULTI-LEVEL TRACKING LOGIC ============
         prev_mode = self.tracking_mode
-        
+
         if self.track_handle and handle_detected:
             self.handle_lost_frames = 0
             self.last_handle_bbox = (self.handle_xmin, self.handle_ymin, 
@@ -537,8 +547,8 @@ class VisionController(LifecycleNode):
             x, y = self._px2norm([self.blackbox_xcenter, self.blackbox_ymax])
             self.tracking_mode = "BOX-BOTTOM"
             self.handle_lost_frames = 0
-            
-        # Reset Integral if tracking mode drastically changes (e.g. handle lost) to avoid sudden jumps
+        
+        # Reset Integral if tracking mode drastically changes
         if prev_mode != self.tracking_mode and "HANDLE" in str(prev_mode) and "BOX" in str(self.tracking_mode):
              self.z_integral = 0.0
 
@@ -550,45 +560,52 @@ class VisionController(LifecycleNode):
         self.z_error = Z - zd
         
         # --- Integral Update ---
-        # Accumulate error for surge (Z-axis)
         if abs(self.z_error) < 1.0: # Only integrate when reasonably close
              self.z_integral += self.z_error * dt
              # Anti-windup
              self.z_integral = np.clip(self.z_integral, -self.integral_limit, self.integral_limit)
         else:
              self.z_integral = 0.0
-        
+
         # Interaction matrix
-        fx = 1.0; fy = 1.0
+        fx = 1.0
+        fy = 1.0
         L_full = np.array([
             [-fx/Z, 0, fx*x/Z, fx*x*y, -fx*(1+x**2), fx*y],
             [0, -fy/Z, fy*y/Z, fy*(1+y**2), -fy*x*y, -fy*x]
         ])
+        
         L_reduced = L_full[:, [0, 1, 2, 5]]
         L_depth = np.array([[0, 0, -1, 0]])
         L = np.vstack([L_reduced, L_depth])
         
         error_combined = np.array([self.s_error[0], self.s_error[1], self.z_error])
+        
+        # Compute velocity using DYNAMIC GAINS
         L_inv = np.linalg.pinv(L)
         v_cam_4d = -self.gains * (L_inv @ error_combined)
+        self.get_logger().info(f"gain: {self.gains}, error: {error_combined}, v_cam_4d: {v_cam_4d}", throttle_duration_sec=1.0)
         
         # Apply Integral term to Surge
-        # Subtract because v = -K * error
         v_cam_4d[2] -= self.gain_surge_integral * self.z_integral
-        
+
+        # Transform to ROV frame
         H = self.camera_to_rov_transform()
         v_rov_4d = self.transform_velocity_4dof(v_cam_4d, H)
         
-        v_rov_4d[0:3] = np.clip(v_rov_4d[0:3], -self.v_linear_max, self.v_linear_max)
+        # Apply DYNAMIC VELOCITY LIMITS
+        v_rov_4d[1:3] = np.clip(v_rov_4d[1:3], -self.v_linear_max, self.v_linear_max)
+        v_rov_4d[0] = np.clip(v_rov_4d[0], -self.v_surge_max, self.v_surge_max)
         v_rov_4d[3] = np.clip(v_rov_4d[3], -self.v_angular_max, self.v_angular_max)
 
         if handle_detected:
             sway_speed = (self.blackbox_xcenter - (self.handle_xcenter - self.handel_offset)) * self.gains[0]
+            sway_speed = np.clip(sway_speed, -self.v_sway_max, self.v_sway_max)
         else:
             sway_speed = 0.0
-            
         self.Camera_pwm['surge'] = map_to_pwm(surge_sign * v_rov_4d[0])
         self.Camera_pwm['sway']  = map_to_pwm(sway_sign * sway_speed)
+        
         self.Camera_pwm['heave'] = map_to_pwm(heave_sign * v_rov_4d[2] + self.floatability)
         self.Camera_pwm['yaw']   = map_to_pwm(yaw_sign * v_rov_4d[3])
         self.Camera_pwm['pitch'] = 1500
@@ -596,6 +613,7 @@ class VisionController(LifecycleNode):
 
     # ---------- small helpers ----------
     def _px2norm(self, pt):
+        """Pixel to normalized camera coords. Falls back to legacy linear model."""
         try:
             if self.camera_matrix is not None:
                 cx = self.camera_matrix[0, 2]; cy = self.camera_matrix[1, 2]
@@ -606,6 +624,7 @@ class VisionController(LifecycleNode):
                 lx = self.legacy_cam.get('lx', 455.0); ly = self.legacy_cam.get('ly', 455.0)
                 return (float(pt[0]) - u0) / lx, (float(pt[1]) - v0) / ly
             else:
+                # fallback defaults
                 return (float(pt[0]) - 480.0) / 455.0, (float(pt[1]) - 270.0) / 455.0
         except Exception as e:
             self.get_logger().warn(f"_px2norm failed: {e}")
@@ -628,45 +647,213 @@ class VisionController(LifecycleNode):
         cv2.putText(image, text, position, cv2.FONT_HERSHEY_SIMPLEX, scale, (b, g, r, 255), 1)
 
     def draw_visualization(self):
+        """Draw detection visualization with bounding boxes and tracking points"""
         try:
             if not hasattr(self, 'image_np') or self.image_np is None:
                 return
             
             desired_x = int(self.desired_point[0])
             desired_y = int(self.desired_point[1])
-            self.overlay_points(self.image_np, [desired_x, desired_y], 255, 0, 0, 'desired', scale=0.7)
             
-            if self.blackbox_xmin > 0:
-                cv2.rectangle(self.image_np, (int(self.blackbox_xmin), int(self.blackbox_ymin)), 
-                              (int(self.blackbox_xmax), int(self.blackbox_ymax)), (0, 255, 255), 2)
+            self.overlay_points(self.image_np, [desired_x, desired_y], 255, 0, 0, 
+                            'desired point', scale=0.7, offsetx=10, offsety=-10)
+            
+            if self.blackbox_xmin > 0 and self.blackbox_xmax > 0:
+                # Draw box detection (yellow rectangle)
+                cv2.rectangle(self.image_np,
+                            (int(self.blackbox_xmin), int(self.blackbox_ymin)),
+                            (int(self.blackbox_xmax), int(self.blackbox_ymax)),
+                            (0, 255, 255), 2)
                 
-                info_y = 30; line_height = 30
-                cv2.putText(self.image_np, f"Dist: {self.distance:.2f} m", (10, info_y + line_height), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
-                cv2.putText(self.image_np, f"Mode: {self.tracking_mode}", (10, info_y + 6*line_height), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+                if "BOX" in self.tracking_mode:
+                    # We track BOX TOP CENTER, not box center
+                    detected_x = int(self.blackbox_xcenter)
+                    detected_y = int(self.blackbox_ymax)  # Changed from blackbox_ycenter!
+                    label = 'box bottom center'
+                else:
+                    # For other modes, show actual box center for reference
+                    detected_x = int(self.blackbox_xcenter)
+                    detected_y = int(self.blackbox_ycenter)
+                    label = 'box center'
+                            
+                self.overlay_points(self.image_np, [detected_x, detected_y], 0, 255, 0,
+                                label, scale=0.7, offsetx=10, offsety=10)
                 
-                # Show Integral Accumulation
-                cv2.putText(self.image_np, f"Z-Integral: {self.z_integral:.3f}", (10, info_y + 7*line_height), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 2)
-
+                error_x = detected_x - desired_x
+                error_y = detected_y - desired_y
+                
+                info_y = 30
+                line_height = 30
+                
+                error_text = f"Pixel Error in x,y: ({error_x:.0f}, {error_y:.0f})"
+                cv2.putText(self.image_np, error_text,
+                        (10, info_y), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 3)
+                cv2.putText(self.image_np, error_text,
+                        (10, info_y), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
+                
+                depth_text = f"Estimated Distance to box: {self.distance:.2f} m"
+                cv2.putText(self.image_np, depth_text,
+                        (10, info_y + line_height), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 3)
+                cv2.putText(self.image_np, depth_text,
+                        (10, info_y + line_height), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
+                
+                box_width = self.blackbox_xmax - self.blackbox_xmin
+                box_height = self.blackbox_ymax - self.blackbox_ymin
+                box_text = f"Box size: {box_width:.0f} x {box_height:.0f} px"
+                cv2.putText(self.image_np, box_text,
+                        (10, info_y + 2*line_height), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 3)
+                cv2.putText(self.image_np, box_text,
+                        (10, info_y + 2*line_height), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
+                
+                vel_text = (f"PWM - Surge: {self.Camera_pwm['surge']}, "
+                            f"Sway: {self.Camera_pwm['sway']}, "
+                            f"Heave: {self.Camera_pwm['heave']}, "
+                            f"Yaw: {self.Camera_pwm['yaw']}")
+                cv2.putText(self.image_np, vel_text,
+                        (10, info_y + 3*line_height), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 3)
+                cv2.putText(self.image_np, vel_text,
+                        (10, info_y + 3*line_height), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1) 
+                
+                img_error_text = f"Image Error: ({self.s_error[0]:.4f}, {self.s_error[1]:.4f}), Depth Error: {self.z_error:.4f}"
+                cv2.putText(self.image_np, img_error_text,
+                        (10, info_y + 4*line_height), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 3)
+                cv2.putText(self.image_np, img_error_text,
+                        (10, info_y + 4*line_height), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
+                
+                # Display current gains and floatability
+                gains_text = f"Gains [S,Sw,H,Y]: [{self.gains[2]:.2f}, {self.gains[0]:.2f}, {self.gains[1]:.2f}, {self.gains[3]:.2f}] | Float: {self.floatability:.3f}"
+                cv2.putText(self.image_np, gains_text,
+                        (10, info_y + 5*line_height), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 3)
+                cv2.putText(self.image_np, gains_text,
+                        (10, info_y + 5*line_height), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
+                
+                # Display tracking mode
+                status_text = (f"VS: {'ON' if self.enable_visual_servoing else 'OFF'} | "
+                            f"Mode: {self.tracking_mode} | Lost: {self.handle_lost_frames} ")
+                cv2.putText(self.image_np, status_text,
+                        (10, info_y + 6*line_height), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 3)
+                cv2.putText(self.image_np, status_text,
+                        (10, info_y + 6*line_height), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
+            
+            # ============ HANDLE VISUALIZATION ============
+            
+            # Draw YOLO-detected handle (if available)
+            if self.handle_xmin > 0 and self.handle_xmax > 0:
+                # Magenta rectangle for handle detection
+                cv2.rectangle(self.image_np,
+                            (int(self.handle_xmin), int(self.handle_ymin)),
+                            (int(self.handle_xmax), int(self.handle_ymax)),
+                            (255, 0, 255), 2)
+                
+                handle_x = int(self.handle_xcenter)
+                handle_y = int(self.handle_ycenter)
+                
+                # Draw handle center point
+                cv2.circle(self.image_np, (handle_x, handle_y), 8, (255, 0, 255), -1)
+                cv2.putText(self.image_np, 'YOLO Handle', 
+                        (handle_x + 15, handle_y - 10),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 0, 255), 2)
+            
+            # ============ TRACKING METHOD VISUALIZATION ============
+            
+            # Draw indicator in top-left corner with color coding
+            tracking_indicator_y = 30
+            
+            if self.tracking_mode == "YOLO-HANDLE":
+                # Magenta indicator for YOLO tracking
+                cv2.rectangle(self.image_np, (850, 10), (950, 50), (255, 0, 255), -1)
+                cv2.putText(self.image_np, "YOLO", (860, 35), 
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+                
+                # Draw active tracking point (magenta circle on handle)
+                if self.handle_xmin > 0:
+                    handle_x = int(self.handle_xcenter)
+                    handle_y = int(self.handle_ycenter)
+                    cv2.circle(self.image_np, (handle_x, handle_y), 12, (255, 0, 255), 3)
+            
+            elif self.tracking_mode == "FEATURE-HANDLE":
+                # Green indicator for feature tracking
+                cv2.rectangle(self.image_np, (850, 10), (950, 50), (0, 255, 0), -1)
+                cv2.putText(self.image_np, "FEAT", (860, 35), 
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 2)
+                
+                # Draw last known handle bbox if available
+                if self.last_handle_bbox is not None:
+                    xmin, ymin, xmax, ymax = self.last_handle_bbox
+                    cv2.rectangle(self.image_np,
+                                (int(xmin), int(ymin)),
+                                (int(xmax), int(ymax)),
+                                (0, 255, 0), 2)
+                    cv2.putText(self.image_np, 'Last Known ROI', 
+                            (int(xmin), int(ymin) - 10),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+                
+                # Try to get current tracked position
+                projected_pos = self.track_handle_features(self.image_np, self.last_handle_bbox)
+                if projected_pos is not None:
+                    proj_x, proj_y = int(projected_pos[0]), int(projected_pos[1])
+                    # Draw tracked point (green)
+                    cv2.circle(self.image_np, (proj_x, proj_y), 12, (0, 255, 0), 3)
+                    cv2.circle(self.image_np, (proj_x, proj_y), 5, (0, 255, 0), -1)
+                    cv2.putText(self.image_np, 'Tracked', 
+                            (proj_x + 15, proj_y - 10),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+                    
+                    # Draw line from desired point to tracked point
+                    cv2.line(self.image_np, 
+                            (int(self.desired_point[0]), int(self.desired_point[1])),
+                            (proj_x, proj_y),
+                            (0, 255, 0), 2)
+        
+                        
+            elif "BOX" in self.tracking_mode:
+                # Yellow indicator for box tracking
+                cv2.rectangle(self.image_np, (850, 10), (950, 50), (0, 255, 255), -1)
+                cv2.putText(self.image_np, "BOX", (865, 35), 
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 2)
+                
+                # Highlight box center being tracked
+                if self.blackbox_xmin > 0:
+                    box_x = int(self.blackbox_xcenter)
+                    box_y = int(self.blackbox_ycenter)
+                    cv2.circle(self.image_np, (box_x, box_y), 12, (0, 255, 255), 3)
+            
+            else:
+                # Gray indicator for disabled/unknown
+                cv2.rectangle(self.image_np, (850, 10), (950, 50), (128, 128, 128), -1)
+                cv2.putText(self.image_np, "OFF", (865, 35), 
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)            
+            
             cv2.imshow("Visual Servoing", self.image_np)
             cv2.waitKey(1)
+            
         except Exception as e:
             self.get_logger().error(f"Error in visualization: {e}")
-
+    # ---------- optical flow tracker (kept focused) ----------
     def track_handle_features(self, current_frame, handle_bbox):
-        if current_frame is None or handle_bbox is None: return None
+        if current_frame is None or handle_bbox is None:
+            return None
         try:
             gray = cv2.cvtColor(current_frame, cv2.COLOR_BGR2GRAY)
             xmin, ymin, xmax, ymax = handle_bbox
-            if xmin >= xmax or ymin >= ymax: return None
+            if xmin >= xmax or ymin >= ymax:
+                return None
             region = gray[int(ymin):int(ymax), int(xmin):int(xmax)]
-            if region.size == 0: return None
+            if region.size == 0:
+                return None
+            # init features
             corners = cv2.goodFeaturesToTrack(region, maxCorners=20, qualityLevel=0.01, minDistance=8)
-            if corners is None: return None
+            if corners is None:
+                return None
             pts = corners + np.array([xmin, ymin])
             self.track_points = pts; self.prev_gray = gray.copy()
+            self.roi_w, self.roi_h = xmax - xmin, ymax - ymin
             center = np.mean(pts, axis=0)[0]
+            self.last_good_center = center
             return (center[0], center[1])
-        except Exception:
+        except Exception as e:
+            self.get_logger().error(f"track_handle_features error: {e}")
+            self.track_points = None
             return None
 
 def main(args=None):

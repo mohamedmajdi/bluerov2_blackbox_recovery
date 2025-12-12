@@ -60,8 +60,8 @@ class bluerov2_bringup(Node):
         self.pub_msg_override = self.create_publisher(OverrideRCIn, 'rc/override', qos_profile =10)
 
         ###### Clients ######
-        # Service client for setting MAVROS flight modes (namespaced to cmd/set_mode)
-        self.cli_set_mode = self.create_client(SetMode, 'cmd/set_mode')
+        # Service client for setting MAVROS flight modes (set_mode)
+        self.cli_set_mode = self.create_client(SetMode, 'set_mode')
 
         ###### Parameters ####
         self.declare_parameter("initialize", False)
@@ -155,6 +155,7 @@ class bluerov2_bringup(Node):
 
         self.depth_active = False
         self.yaw_active = False
+        self.auto_hold = False
 
         # Timer to publish TF at 10 Hz
         # self.timer = self.create_timer(0.1, self.publish_tf)
@@ -181,21 +182,21 @@ class bluerov2_bringup(Node):
     def timer_callback(self):
         self.get_mode("mode")
         #### Sending Thruster Commands ####
-        if self.mode == "correction" or self.mode == "approaching" or self.mode == "search":
-            self.RC_pwms[0] = self.pitch
-            self.RC_pwms[1] = self.roll
-            # self.RC_pwms[2] += self.heave - 1500
-            # self.RC_pwms[3] += self.yaw - 1500
-            # self.RC_pwms[4] += self.surge - 1500
-            # self.RC_pwms[5] += self.sway - 1500
+        # if self.mode == "correction" or self.mode == "approaching" or self.mode == "search":
+        #     # self.RC_pwms[0] = self.pitch
+        #     # self.RC_pwms[1] = self.roll
+        #     # # self.RC_pwms[2] += self.heave - 1500
+        #     # # self.RC_pwms[3] += self.yaw - 1500
+        #     # # self.RC_pwms[4] += self.surge - 1500
+        #     # # self.RC_pwms[5] += self.sway - 1500
 
-            self.RC_pwms[2] = self.heave
-            self.RC_pwms[3] = self.yaw
-            self.RC_pwms[4] = self.surge
-            self.RC_pwms[5] = self.sway
-        # self.get_logger().info(f"heave pwm: {self.heave}, sent pwm:{self.RC_pwms[2]}")
+        #     # self.RC_pwms[2] = self.heave
+        #     # self.RC_pwms[3] = self.yaw
+        #     # self.RC_pwms[4] = self.surge
+        #     # self.RC_pwms[5] = self.sway
+        #     self.get_logger().info(f"heave pwm: {self.heave}, sent pwm:{self.RC_pwms[2]}")
 
-        elif self.mode == "servoing":
+        if self.mode == "servoing":
             # self.get_logger().info("In servoing mode")
             self.RC_pwms[0] = self.pitch_servoing
             self.RC_pwms[1] = self.roll_servoing
@@ -212,7 +213,7 @@ class bluerov2_bringup(Node):
             if self.mode == "correction":
                 # Toggle MAVROS to Alt Hold when entering correction mode
                 self.set_mav_mode("ALT_HOLD")
-                
+                self.auto_hold = True
                 # self.search_manager.deactivate()
                 # self.approaching_manger.deactivate()
                 self.vs_manager.deactivate()
@@ -229,7 +230,7 @@ class bluerov2_bringup(Node):
             elif self.mode == "manual":
                 # Toggle MAVROS to Manual when entering manual mode
                 self.set_mav_mode("MANUAL")
-
+                self.auto_hold = False
                 self.surge_servoing, self.sway_servoing, self.heave_servoing, self.roll_servoing, self.pitch_servoing, self.yaw_servoing = 1500, 1500, 1500, 1500, 1500, 1500
 
                 # self.roll_manager.deactivate()
@@ -268,7 +269,9 @@ class bluerov2_bringup(Node):
                 self.roll_manager.deactivate()
 
             elif self.mode == "servoing":
-
+                if not self.auto_hold:
+                    self.set_mav_mode("ALT_HOLD")
+                    
                 self.get_logger().info("Starting visual servoing")
                 # self.depth_manager.deactivate()
                 # self.yaw_manager.deactivate()

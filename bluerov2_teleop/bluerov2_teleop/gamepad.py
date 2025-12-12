@@ -285,7 +285,7 @@ class GamepadTelop(Node):
 
     def velCallback(self, cmd_vel):
         ''' Used in manual mode to read the values of the analog and map it pwm then send it the thrusters'''
-        if (self.mode != "manual"):
+        if (self.mode != "manual" and self.mode != "correction"):
             return
         else:
             self.get_logger().info("Sending...")
