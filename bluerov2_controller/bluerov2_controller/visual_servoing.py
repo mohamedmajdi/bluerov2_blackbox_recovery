@@ -35,9 +35,9 @@ class VisionController(LifecycleNode):
         self.declare_parameter('calib_file', 'camera_params.npz',
                                ParameterDescriptor(description='npz with camera calibration', type=ParameterType.PARAMETER_STRING))
         self.declare_parameter('desired_point_x', -1.0, ParameterDescriptor(type=ParameterType.PARAMETER_DOUBLE))
-        self.declare_parameter('desired_point_y', 250.0, ParameterDescriptor(type=ParameterType.PARAMETER_DOUBLE))
-        self.declare_parameter('desired_point_z', 0.8, ParameterDescriptor(type=ParameterType.PARAMETER_DOUBLE))
-        self.declare_parameter('handel_offset',0.0, ParameterDescriptor(type=ParameterType.PARAMETER_DOUBLE))
+        self.declare_parameter('desired_point_y', 350.0, ParameterDescriptor(type=ParameterType.PARAMETER_DOUBLE))
+        self.declare_parameter('desired_point_z', 0.35, ParameterDescriptor(type=ParameterType.PARAMETER_DOUBLE))
+        self.declare_parameter('handel_offset',-7.0, ParameterDescriptor(type=ParameterType.PARAMETER_DOUBLE))
         self.declare_parameter('fast_surge', False,
             ParameterDescriptor(description='Enable fast surge when close to the handle',
                             type=ParameterType.PARAMETER_BOOL))
@@ -46,11 +46,11 @@ class VisionController(LifecycleNode):
             ('gain_surge', 1.0),
             ('gain_surge_integral', 0.0), # Added Integral Gain
             ('integral_limit', 0.5),      # Added Integral Limit
-            ('gain_sway', 0.04),
-            ('gain_heave', 5.0),
-            ('gain_yaw', 25.0),
+            ('gain_sway', 0.03),
+            ('gain_heave', 6.0),
+            ('gain_yaw', 0.001),
             ('v_linear_max', 0.15),
-            ('v_surge_max', 0.08),
+            ('v_surge_max', 0.1),
             ('v_sway_max', 0.1),
             ('v_angular_max', 0.1),
             ('floatability', 0.0),
@@ -64,7 +64,7 @@ class VisionController(LifecycleNode):
              ('image_topic', 'camera/image'),
             ('detections_topic', 'detections'),
             ('pwm_topic', 'controller/pwm_servoing'),
-            ('control_rate', 1.0),
+            ('control_rate', 20.0),
             ('rotating_yaw_factor',0.4),
             ('rotating_sway_factor',1.0),
             ('aligned_threshold', 0.3),
@@ -131,7 +131,7 @@ class VisionController(LifecycleNode):
         self.sub_approaching = None 
         self.depth_sub = None
         self._timer = None
-        self.rate = 1.0
+        self.rate = 20.0
         self.tracking_mode = None
         self.known_w = 0.14
 
@@ -195,7 +195,7 @@ class VisionController(LifecycleNode):
             qos_profile=qos
         )
         # Added approaching subscriber
-        self.sub_approaching = self.create_subscription(String, "approaching", self.approaching_callback, 10)
+        self.sub_approaching = self.create_subscription(String, "visual_servoing/approaching", self.approaching_callback, 10)
 
         self.rate = float(self.get_parameter('control_rate').value)
         self._timer = self.create_timer(1.0 / self.rate, self._control_loop)
@@ -438,7 +438,7 @@ class VisionController(LifecycleNode):
                 self.attachment_start_time = time.time()           
                 self.gains[2] = 1.0 
                 self.attachment_duration = 5.0
-                self.attachment_speed = 0.5 
+                self.attachment_speed = 0.2
 
             elapsed = time.time() - self.attachment_start_time
 
@@ -497,7 +497,7 @@ class VisionController(LifecycleNode):
         self.distance = z
         Z = max(self.distance, 0.1)
 
-        if not self.aligned and np.abs(width/height - 16/14) > th and not handle_detected and self.depth <= 4.3:
+        if not self.aligned and np.abs(width/height - 16/14) > th and not handle_detected and self.depth >= 4.3:
             self.get_logger().info(f"need to rotate ratio:{ratio} ,current distance :{z}")
             if z > self.aligned_distance:
                 self.Camera_pwm['surge'] = 1530
@@ -603,11 +603,14 @@ class VisionController(LifecycleNode):
             sway_speed = np.clip(sway_speed, -self.v_sway_max, self.v_sway_max)
         else:
             sway_speed = 0.0
+
+        yaw_speed = (self.blackbox_xcenter - self.desired_point[0]) * self.gains[3]
+
         self.Camera_pwm['surge'] = map_to_pwm(surge_sign * v_rov_4d[0])
         self.Camera_pwm['sway']  = map_to_pwm(sway_sign * sway_speed)
         
         self.Camera_pwm['heave'] = map_to_pwm(heave_sign * v_rov_4d[2] + self.floatability)
-        self.Camera_pwm['yaw']   = map_to_pwm(yaw_sign * v_rov_4d[3])
+        self.Camera_pwm['yaw']   = map_to_pwm(yaw_sign * yaw_speed)
         self.Camera_pwm['pitch'] = 1500
         self.Camera_pwm['roll']  = 1500
 
