@@ -49,6 +49,7 @@ class VisionController(LifecycleNode):
             ('gain_sway', 0.03),
             ('gain_heave', 6.0),
             ('gain_yaw', 0.001),
+            ('turbo_mode', False),
             ('v_linear_max', 0.15),
             ('v_surge_max', 0.1),
             ('v_sway_max', 0.1),
@@ -142,7 +143,8 @@ class VisionController(LifecycleNode):
         self.aligned_distance = 2.0
         self.handel_offset = 0.0
         self.depth =0.0
-
+        self.turbo_mode = False
+        self.ready = False
         self.get_logger().info("VisionController constructed")
 
     # ---------- lifecycle callbacks ----------
@@ -249,7 +251,7 @@ class VisionController(LifecycleNode):
     def rel_alt_callback(self,msg:Float64):
         self.depth = -msg.data
     def approaching_callback(self, msg: String):
-        if msg.data == "allowed":
+        if msg.data == "allowed" and self.ready:
             if not self.fast_surge:
                 self.fast_surge = True
                 self.get_logger().info("Approaching allowed: Fast surge ENABLED")
@@ -301,6 +303,12 @@ class VisionController(LifecycleNode):
                 elif name == 'aligned_threshold': self.aligned_threshold = val 
                 elif name == 'aligned_distance': self.aligned_distance = val 
                 elif name == 'handel_offset': self.handel_offset = val
+                elif name == 'turbo_mode':
+                    self.turbo_mode = val
+                    if self.turbo_mode:
+                        self.get_logger().info("Turbo mode ENABLED")
+                    else:
+                        self.get_logger().info("Turbo mode DISABLED")
                 elif name == 'calib_file':
                     try:
                         data = np.load(val)
@@ -360,6 +368,7 @@ class VisionController(LifecycleNode):
         self.aligned_threshold = self.get_parameter('aligned_threshold').value
         self.aligned_distance = self.get_parameter('aligned_distance').value
         self.handel_offset = self.get_parameter('handel_offset').value
+        self.turbo_mode = self.get_parameter('turbo_mode').value
 
     # ---------- control loop ----------
     def _control_loop(self):
@@ -497,24 +506,6 @@ class VisionController(LifecycleNode):
         self.distance = z
         Z = max(self.distance, 0.1)
 
-        if not self.aligned and np.abs(width/height - 16/14) > th and not handle_detected and self.depth >= 4.3:
-            self.get_logger().info(f"need to rotate ratio:{ratio} ,current distance :{z}")
-            if z > self.aligned_distance:
-                self.Camera_pwm['surge'] = 1530
-                self.Camera_pwm['sway']  = 1500
-                self.Camera_pwm['heave'] = 1500
-                self.Camera_pwm['yaw']   = 1500
-            else:
-                self.Camera_pwm['surge'] = 1500
-                self.Camera_pwm['sway']  = map_to_pwm(self.rotating_sway_factor * rotate_speed)
-                self.Camera_pwm['heave'] = map_to_pwm(self.floatability)
-                self.Camera_pwm['yaw']   = map_to_pwm(yaw_sign* self.rotating_yaw_factor * rotate_speed)
-            
-            self.z_integral = 0.0 # Reset integral while rotating
-            return
-        else:
-            if self.depth > 4.3:
-                self.aligned = True
         
          # ============ MULTI-LEVEL TRACKING LOGIC ============
         prev_mode = self.tracking_mode
@@ -594,18 +585,57 @@ class VisionController(LifecycleNode):
         v_rov_4d = self.transform_velocity_4dof(v_cam_4d, H)
         
         # Apply DYNAMIC VELOCITY LIMITS
-        v_rov_4d[1:3] = np.clip(v_rov_4d[1:3], -self.v_linear_max, self.v_linear_max)
-        v_rov_4d[0] = np.clip(v_rov_4d[0], -self.v_surge_max, self.v_surge_max)
-        v_rov_4d[3] = np.clip(v_rov_4d[3], -self.v_angular_max, self.v_angular_max)
+        # v_rov_4d[1:3] = np.clip(v_rov_4d[1:3], -self.v_linear_max, self.v_linear_max)
+        # v_rov_4d[0] = np.clip(v_rov_4d[0], -self.v_surge_max, self.v_surge_max)
+        # v_rov_4d[3] = np.clip(v_rov_4d[3], -self.v_angular_max, self.v_angular_max)
 
         if handle_detected:
             sway_speed = (self.blackbox_xcenter - (self.handle_xcenter - self.handel_offset)) * self.gains[0]
-            sway_speed = np.clip(sway_speed, -self.v_sway_max, self.v_sway_max)
         else:
             sway_speed = 0.0
-
         yaw_speed = (self.blackbox_xcenter - self.desired_point[0]) * self.gains[3]
 
+        if self.turbo_mode and Z > 1.5:
+            # self.get_logger().info("Turbo mode active, applying higher limits")
+            v_rov_4d[1:3] = np.clip(v_rov_4d[1:3], -1.65 *  self.v_linear_max, 1.65 * self.v_linear_max)
+            v_rov_4d[0] = np.clip(v_rov_4d[0], -1.5 * self.v_surge_max, 1.5 * self.v_surge_max)
+            v_rov_4d[3] = np.clip(v_rov_4d[3], -1.5 * self.v_angular_max, 1.5 * self.v_angular_max)
+            sway_speed = np.clip(sway_speed, -1.5 * self.v_sway_max,1.5 *  self.v_sway_max)
+            # yaw_speed = np.clip(yaw_speed, -1.5 * self.v_angular_max, 1.5 * self.v_angular_max)
+        elif self.depth < 3.8:
+            v_rov_4d[1:3] = np.clip(v_rov_4d[1:3], -1.35 *  self.v_linear_max, 1.35 * self.v_linear_max)
+            v_rov_4d[0] = np.clip(v_rov_4d[0], -self.v_surge_max, self.v_surge_max)
+            v_rov_4d[3] = np.clip(v_rov_4d[3], -self.v_angular_max, self.v_angular_max)
+            sway_speed = np.clip(sway_speed, -self.v_sway_max, self.v_sway_max)
+            # yaw_speed = np.clip(yaw_speed, -self.v_angular_max, self.v_angular_ma
+        else:
+            v_rov_4d[1:3] = np.clip(v_rov_4d[1:3], -self.v_linear_max, self.v_linear_max)
+            v_rov_4d[0] = np.clip(v_rov_4d[0], -self.v_surge_max, self.v_surge_max)
+            v_rov_4d[3] = np.clip(v_rov_4d[3], -self.v_angular_max, self.v_angular_max)
+            sway_speed = np.clip(sway_speed, -self.v_sway_max, self.v_sway_max)
+            # yaw_speed = np.clip(yaw_speed, -self.v_angular_max, self.v_angular_max)
+
+        
+
+        # if not self.aligned and np.abs(width/height - 16/14) > th and not handle_detected and self.depth >= 4.3:
+        #     self.get_logger().info(f"need to rotate ratio:{ratio} ,current distance :{z}")
+        #     if z > self.aligned_distance:
+        #         self.Camera_pwm['surge'] = 1530
+        #         self.Camera_pwm['sway']  = 1500
+        #         self.Camera_pwm['heave'] = 1500
+        #         self.Camera_pwm['yaw']   = 1500
+        #     else:
+        #         self.Camera_pwm['surge'] = 1500
+        #         self.Camera_pwm['sway']  = map_to_pwm(self.rotating_sway_factor * rotate_speed)
+        #         self.Camera_pwm['heave'] = map_to_pwm(self.floatability)
+        #         self.Camera_pwm['yaw']   = map_to_pwm(yaw_sign* self.rotating_yaw_factor * rotate_speed)
+            
+        #     self.z_integral = 0.0 # Reset integral while rotating
+        #     return
+        # else:
+        #     if self.depth > 4.3:
+        #         self.aligned = True
+        
         self.Camera_pwm['surge'] = map_to_pwm(surge_sign * v_rov_4d[0])
         self.Camera_pwm['sway']  = map_to_pwm(sway_sign * sway_speed)
         
@@ -613,6 +643,15 @@ class VisionController(LifecycleNode):
         self.Camera_pwm['yaw']   = map_to_pwm(yaw_sign * yaw_speed)
         self.Camera_pwm['pitch'] = 1500
         self.Camera_pwm['roll']  = 1500
+
+        err_heave = int(self.blackbox_ymax) - int(self.desired_point[1])
+        err_surge = int(Z) - int(self.desired_point[2])
+        err_yaw = int(self.blackbox_xcenter) - int(self.desired_point[0]) 
+        err_sway = int(self.blackbox_xcenter) - int((self.handle_xcenter - self.handel_offset))
+        if abs(err_heave) < 15 and abs(err_surge) < 0.04 and abs(err_yaw) < 30 and abs(err_sway) < 5:
+            self.ready = True
+        else:
+            self.ready = False
 
     # ---------- small helpers ----------
     def _px2norm(self, pt):
@@ -737,6 +776,12 @@ class VisionController(LifecycleNode):
                         (10, info_y + 6*line_height), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 3)
                 cv2.putText(self.image_np, status_text,
                         (10, info_y + 6*line_height), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
+                
+                ready_text = (f"Ready: {'YES' if self.ready else 'NO'} | ")
+                cv2.putText(self.image_np, ready_text,
+                        (10, info_y + 7*line_height), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 3)
+                cv2.putText(self.image_np, ready_text,
+                        (10, info_y + 7*line_height), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
             
             # ============ HANDLE VISUALIZATION ============
             
@@ -825,8 +870,20 @@ class VisionController(LifecycleNode):
                 # Gray indicator for disabled/unknown
                 cv2.rectangle(self.image_np, (850, 10), (950, 50), (128, 128, 128), -1)
                 cv2.putText(self.image_np, "OFF", (865, 35), 
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)            
-            
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)     
+
+
+            if self.ready:
+                # Green box for READY
+                cv2.rectangle(self.image_np, (850, 60), (950, 100), (0, 255, 0), -1)
+                cv2.putText(self.image_np, "READY", (860, 85), 
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 2)
+            else:
+                # Red box for NOT READY
+                cv2.rectangle(self.image_np, (850, 60), (950, 100), (0, 0, 255), -1)
+                cv2.putText(self.image_np, "NOT RDY", (855, 85), 
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
+                        
             cv2.imshow("Visual Servoing", self.image_np)
             cv2.waitKey(1)
             
