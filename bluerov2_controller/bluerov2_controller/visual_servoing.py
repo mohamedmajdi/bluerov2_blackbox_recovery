@@ -110,6 +110,14 @@ class VisionController(LifecycleNode):
         self.last_handle_bbox = None
         self.last_good_center = None
         self.handle_lost_frames = 0
+        
+        # --- Optical Flow Variables for Box ---
+        self.prev_gray_box = None
+        self.box_p0 = None
+        self.last_box_dims = (0.0, 0.0) # width, height
+        self.box_lost_frames = 0
+        self.internal_box_center = (0.0, 0.0) # To keep track during the 2-frame gap
+        # --------------------------------------
 
         self.Camera_pwm = dict(pitch=1500, roll=1500, heave=1500, yaw=1500, surge=1500, sway=1500)
         self.s_error = np.zeros(2)
@@ -223,6 +231,14 @@ class VisionController(LifecycleNode):
         self.last_good_center = None
         self.handle_lost_frames = 0
         self.z_integral = 0.0
+        
+        # --- Reset OF Box ---
+        self.prev_gray_box = None
+        self.box_p0 = None
+        self.last_box_dims = (0.0, 0.0)
+        self.box_lost_frames = 0
+        self.internal_box_center = (0.0, 0.0)
+        # --------------------
         
         self.get_logger().info("Deactivating VisionController...")
         if self._timer:
@@ -430,6 +446,11 @@ class VisionController(LifecycleNode):
         dt = current_time - self.last_time
         self.last_time = current_time
 
+        # Convert to gray for OF
+        gray = None
+        if hasattr(self, 'image_np') and self.image_np is not None:
+            gray = cv2.cvtColor(self.image_np, cv2.COLOR_BGR2GRAY)
+
         surge_sign = -1.0 if self.invert_surge else 1.0
         sway_sign = -1.0 if self.invert_sway else 1.0
         heave_sign = -1.0 if self.invert_heave else 1.0
@@ -447,7 +468,6 @@ class VisionController(LifecycleNode):
             return
         
         if self.fast_surge:
-
             if self.attachment_start_time is None:
                 self.attachment_start_time = time.time()           
                 self.gains[2] = 1.0 
@@ -473,13 +493,103 @@ class VisionController(LifecycleNode):
                 self.gains[2] = self.get_parameter('gain_surge').value 
                 self.get_logger().warn("Fast surge interrupted, resuming normal tracking")
 
-        self.blackbox_xmin = msg.blackbox_xmin
-        self.blackbox_xmax = msg.blackbox_xmax
-        self.blackbox_xcenter = msg.blackbox_xcenter
-        self.blackbox_ymin = msg.blackbox_ymin
-        self.blackbox_ymax = msg.blackbox_ymax
-        self.blackbox_ycenter = msg.blackbox_ycenter
+        # -------------------- Box Tracking Logic --------------------
+        yolo_box_detected = (msg.blackbox_xmax - msg.blackbox_xmin) > 0 and (msg.blackbox_ymax - msg.blackbox_ymin) > 0
+
+        # Always update internal OF state if possible, to bridge the gap if YOLO is lost
+        of_shift_x = 0.0
+        of_shift_y = 0.0
+        of_valid = False
+
+        if self.enable_of_tracking and self.prev_gray_box is not None and self.box_p0 is not None and gray is not None:
+            try:
+                p1, st, err = cv2.calcOpticalFlowPyrLK(self.prev_gray_box, gray, self.box_p0, None, 
+                                                       winSize=(15, 15), maxLevel=2,
+                                                       criteria=(cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 10, 0.03))
+                if p1 is not None:
+                    good_new = p1[st==1]
+                    good_old = self.box_p0[st==1]
+                    if len(good_new) >= 2:
+                        of_shift_x = np.mean(good_new[:,0] - good_old[:,0])
+                        of_shift_y = np.mean(good_new[:,1] - good_old[:,1])
+                        # Update points for next step
+                        self.box_p0 = good_new.reshape(-1, 1, 2)
+                        of_valid = True
+                    else:
+                        self.box_p0 = None # Lost flow
+            except Exception as e:
+                self.get_logger().warn(f"Box OF Error: {e}")
+                self.box_p0 = None
         
+        # Now decide which data to use
+        if yolo_box_detected:
+            # --- YOLO DETECTED ---
+            self.box_lost_frames = 0
+            # FIX: Explicitly set mode to BOTTOM/YOLO so we don't get stuck in FLOW mode
+            self.tracking_mode = "BOX-BOTTOM" 
+            
+            # Trust YOLO completely
+            self.blackbox_xmin = msg.blackbox_xmin
+            self.blackbox_xmax = msg.blackbox_xmax
+            self.blackbox_xcenter = msg.blackbox_xcenter
+            self.blackbox_ymin = msg.blackbox_ymin
+            self.blackbox_ymax = msg.blackbox_ymax
+            self.blackbox_ycenter = msg.blackbox_ycenter
+
+            # Update internal state for backup
+            self.last_box_dims = (self.blackbox_xmax - self.blackbox_xmin, 
+                                  self.blackbox_ymax - self.blackbox_ymin)
+            self.internal_box_center = (self.blackbox_xcenter, self.blackbox_ycenter)
+            
+            # Re-init features inside YOLO box for future failures
+            if gray is not None:
+                mask = np.zeros_like(gray)
+                try:
+                    mask[int(self.blackbox_ymin):int(self.blackbox_ymax), 
+                         int(self.blackbox_xmin):int(self.blackbox_xmax)] = 255
+                    self.box_p0 = cv2.goodFeaturesToTrack(gray, mask=mask, maxCorners=40, 
+                                                          qualityLevel=0.1, minDistance=5, blockSize=5)
+                    self.prev_gray_box = gray.copy()
+                except Exception as e:
+                    self.get_logger().warn(f"Error init box features: {e}")
+
+        else:
+            # --- YOLO LOST ---
+            self.box_lost_frames += 1
+            
+            # Apply calculated flow to internal center (if valid) so we don't lose position during the <2 frame gap
+            if of_valid:
+                cx, cy = self.internal_box_center
+                self.internal_box_center = (cx + of_shift_x, cy + of_shift_y)
+                # Keep prev_gray updated so OF continues next frame
+                self.prev_gray_box = gray.copy()
+
+            if self.box_lost_frames > 2 and self.enable_of_tracking and of_valid:
+                # > 2 Frames Lost: ACTIVATE PROJECTED BOX
+                w_b, h_b = self.last_box_dims
+                icx, icy = self.internal_box_center
+                
+                # Project the box based on internal center and last known dimensions
+                self.blackbox_xcenter = icx
+                self.blackbox_ycenter = icy
+                self.blackbox_xmin = icx - w_b / 2
+                self.blackbox_xmax = icx + w_b / 2
+                self.blackbox_ymin = icy - h_b / 2
+                self.blackbox_ymax = icy + h_b / 2 # This is the "bottom" point used in control
+                
+                self.tracking_mode = "BOX-FLOW"
+            else:
+                # < 2 Frames or Flow failed: Report "Zero" (Lost)
+                # This respects the requirement: "only if ... lost two frames ... start project"
+                self.blackbox_xmin = 0
+                self.blackbox_xmax = 0
+                self.blackbox_xcenter = 0
+                self.blackbox_ymin = 0
+                self.blackbox_ymax = 0
+                self.blackbox_ycenter = 0
+        
+        # -----------------------------------------------------------
+
         self.handle_xmin = msg.handle_xmin
         self.handle_xmax = msg.handle_xmax
         self.handle_xcenter = msg.handle_xcenter
@@ -493,6 +603,7 @@ class VisionController(LifecycleNode):
         height = np.abs(self.blackbox_ymax - self.blackbox_ymin)
 
         if width == 0 or height == 0:
+            # If we are here, it means YOLO is lost AND (frames <= 2 OR OF failed/disabled)
             self.get_logger().info("box not detected")
             self.z_integral = 0.0
             return
@@ -511,6 +622,8 @@ class VisionController(LifecycleNode):
 
         
         prev_mode = self.tracking_mode
+        
+        # Determine tracking mode
         if self.track_handle and handle_detected:
             self.handle_lost_frames = 0
             self.last_handle_bbox = (self.handle_xmin, self.handle_ymin, 
@@ -537,7 +650,8 @@ class VisionController(LifecycleNode):
                 self.tracking_mode = "BOX-EARLY"
         else:
             x, y = self._px2norm([self.blackbox_xcenter, self.blackbox_ymax])
-            self.tracking_mode = "BOX-BOTTOM"
+            if self.tracking_mode != "BOX-FLOW":
+                self.tracking_mode = "BOX-BOTTOM"
             self.handle_lost_frames = 0
         
         if prev_mode != self.tracking_mode and "HANDLE" in str(prev_mode) and "BOX" in str(self.tracking_mode):
@@ -585,12 +699,12 @@ class VisionController(LifecycleNode):
         yaw_speed = (self.blackbox_xcenter - self.desired_point[0]) * self.gains[3]
 
         if self.turbo_mode and Z > 1.5:
-            v_rov_4d[1:3] = np.clip(v_rov_4d[1:3], -1.65 *  self.v_linear_max, 1.65 * self.v_linear_max)
+            v_rov_4d[1:3] = np.clip(v_rov_4d[1:3], -1.65 * self.v_linear_max, 1.65 * self.v_linear_max)
             v_rov_4d[0] = np.clip(v_rov_4d[0], -1.5 * self.v_surge_max, 1.5 * self.v_surge_max)
             v_rov_4d[3] = np.clip(v_rov_4d[3], -1.5 * self.v_angular_max, 1.5 * self.v_angular_max)
-            sway_speed = np.clip(sway_speed, -1.5 * self.v_sway_max,1.5 *  self.v_sway_max)
+            sway_speed = np.clip(sway_speed, -1.5 * self.v_sway_max,1.5 * self.v_sway_max)
         elif self.depth < 3.8:
-            v_rov_4d[1:3] = np.clip(v_rov_4d[1:3], -1.35 *  self.v_linear_max, 1.35 * self.v_linear_max)
+            v_rov_4d[1:3] = np.clip(v_rov_4d[1:3], -1.35 * self.v_linear_max, 1.35 * self.v_linear_max)
             v_rov_4d[0] = np.clip(v_rov_4d[0], -self.v_surge_max, self.v_surge_max)
             v_rov_4d[3] = np.clip(v_rov_4d[3], -self.v_angular_max, self.v_angular_max)
             sway_speed = np.clip(sway_speed, -self.v_sway_max, self.v_sway_max)
@@ -805,16 +919,28 @@ class VisionController(LifecycleNode):
                             (proj_x, proj_y),
                             (0, 255, 0), 2)
         
-                        
             elif "BOX" in self.tracking_mode:
-                cv2.rectangle(self.image_np, (850, 10), (950, 50), (0, 255, 255), -1)
-                cv2.putText(self.image_np, "BOX", (865, 35), 
+                if self.tracking_mode == "BOX-FLOW":
+                    color = (255, 100, 0) # Blue-ish for Flow
+                    txt = "FLOW"
+                else:
+                    color = (0, 255, 255) # Yellow for YOLO
+                    txt = "BOX"
+
+                cv2.rectangle(self.image_np, (850, 10), (950, 50), color, -1)
+                cv2.putText(self.image_np, txt, (865, 35), 
                         cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 2)
                 
                 if self.blackbox_xmin > 0:
                     box_x = int(self.blackbox_xcenter)
                     box_y = int(self.blackbox_ycenter)
-                    cv2.circle(self.image_np, (box_x, box_y), 12, (0, 255, 255), 3)
+                    cv2.circle(self.image_np, (box_x, box_y), 12, color, 3)
+                    
+                if self.tracking_mode == "BOX-FLOW" and self.box_p0 is not None:
+                    # visualize flow points
+                    for p in self.box_p0:
+                         x,y = p.ravel()
+                         cv2.circle(self.image_np, (int(x),int(y)), 3, (0,0,255), -1)
             
             else:
                 cv2.rectangle(self.image_np, (850, 10), (950, 50), (128, 128, 128), -1)
