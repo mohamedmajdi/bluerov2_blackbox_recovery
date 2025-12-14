@@ -37,6 +37,17 @@ class BlackboxOrientationNode(Node):
             'blackbox_orientation',
             10
         )
+
+        self.handle_publisher = self.create_publisher(
+            String,
+            'handle_orientation',
+            10
+        )
+
+
+
+
+        
         
         self.get_logger().info("Blackbox Orientation Node initialized")
         self.get_logger().info(f"Ratio threshold: {self.ratio_threshold}")
@@ -92,11 +103,24 @@ class BlackboxOrientationNode(Node):
                     f"Blackbox dimensions - Width: {width}, Height: {height}, "
                     f"Ratio: {width/height:.2f}, Orientation: {orientation}"
                 )
+
+                if msg.handle_xmin == -1:
+                    handle_orientation = "no_detection"
+                    self.get_logger().debug("No handle detected")
+                else:
+                    handle_width = msg.handle_xmax - msg.handle_xmin
+                    handle_height = msg.handle_ymax - msg.handle_ymin
+                # Calculate orientation based on ratio
+                    handle_orientation = self._calculate_orientation(handle_width, handle_height)
             
             # Publish orientation
             orientation_msg = String()
             orientation_msg.data = orientation
             self.orientation_publisher.publish(orientation_msg)
+
+            handle_orientation_msg = String()
+            handle_orientation_msg.data = handle_orientation
+            self.handle_publisher.publish(handle_orientation_msg)
             
         except Exception as e:
             self.get_logger().error(f"Error processing detection: {e}")
@@ -112,13 +136,13 @@ class BlackboxOrientationNode(Node):
         # Determine orientation
         if ratio > self.ratio_threshold:
             # Width is significantly larger than height
-            return "wide"
+            return "Horizontal"
         elif (1.0 / ratio) > self.ratio_threshold:
             # Height is significantly larger than width
-            return "standing"
+            return "Vertical"
         else:
             # Width and height are roughly equal
-            return "straight"
+            return "Aligned"
 
 
 def main(args=None):

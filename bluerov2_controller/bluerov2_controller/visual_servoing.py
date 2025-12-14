@@ -127,6 +127,8 @@ class VisionController(LifecycleNode):
         self.known_w = 0.14
 
         self.aligned = False
+        self.box_or = ""
+        self.handle_or = ""
 
         self.rotating_yaw_factor = 1.0
         self.rotating_sway_factor = 1.0
@@ -185,6 +187,21 @@ class VisionController(LifecycleNode):
             qos_profile=qos
         )
         self.sub_approaching = self.create_subscription(String, "visual_servoing/approaching", self.approaching_callback, 10)
+
+        self.sub_box_orientation = self.create_subscription(
+            String,
+            "blackbox_orientation",
+            self.box_orientation_callback,
+            10
+        )
+
+        self.sub_handle_orientation = self.create_subscription(
+            String,
+            "handle_orientation",
+            self.handle_orientation_callback,
+            10
+        )
+
         self.rate = float(self.get_parameter('control_rate').value)
         self._timer = self.create_timer(1.0 / self.rate, self._control_loop)
 
@@ -220,6 +237,11 @@ class VisionController(LifecycleNode):
             self.destroy_subscription(self.sub_approaching); self.sub_approaching = None
         if self.depth_sub:
             self.destroy_subscription(self.depth_sub); self.depth_sub = None
+
+        if self.sub_box_orientation:
+            self.destroy_subscription(self.sub_box_orientation); self.sub_box_orientation = None
+        if self.sub_handle_orientation:
+            self.destroy_subscription(self.sub_handle_orientation); self.sub_handle_orientation = None
         return TransitionCallbackReturn.SUCCESS
 
     def on_cleanup(self, state: State) -> TransitionCallbackReturn:
@@ -365,6 +387,11 @@ class VisionController(LifecycleNode):
                    ]
             msg.data = arr
             self.pub_pwm_vs.publish(msg)
+
+    def box_orientation_callback(self, msg: String):
+        self.box_or = msg.data
+    def handle_orientation_callback(self, msg: String):
+        self.handle_or = msg.data
 
     def image_callback(self, msg: Image):
         try:
@@ -706,11 +733,22 @@ class VisionController(LifecycleNode):
                 cv2.putText(self.image_np, status_text,
                         (10, info_y + 6*line_height), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
                 
-                ready_text = (f"Ready: {'YES' if self.ready else 'NO'} | ")
-                cv2.putText(self.image_np, ready_text,
+                # ready_text = (f"Ready: {'YES' if self.ready else 'NO'} | ")
+                # cv2.putText(self.image_np, ready_text,
+                #         (10, info_y + 7*line_height), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 3)
+                # cv2.putText(self.image_np, ready_text,
+                #         (10, info_y + 7*line_height), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
+
+                box_or_text = f"Box Orientation: {self.box_or}"
+                cv2.putText(self.image_np, box_or_text,
                         (10, info_y + 7*line_height), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 3)
-                cv2.putText(self.image_np, ready_text,
+                cv2.putText(self.image_np, box_or_text,
                         (10, info_y + 7*line_height), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
+                handle_or_text = f"Handle Orientation: {self.handle_or}"
+                cv2.putText(self.image_np, handle_or_text,
+                        (10, info_y + 8*line_height), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 3)
+                cv2.putText(self.image_np, handle_or_text,
+                        (10, info_y + 8*line_height), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
             
             if self.handle_xmin > 0 and self.handle_xmax > 0:
                 cv2.rectangle(self.image_np,

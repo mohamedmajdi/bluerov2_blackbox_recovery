@@ -75,7 +75,7 @@ def generate_launch_description():
             arguments=[
                 "--x", "6.0",
                 "--y", "4.0",
-                "--z", "0.0",
+                "--z", "0.75",
                 "--roll", "0.0",
                 "--pitch", "3.1416",
                 "--yaw", "3.14159",
@@ -83,22 +83,38 @@ def generate_launch_description():
                 "--child-frame-id", "cirtesu_tank"
             ]
         )
-    # world_ned_odom_static_tf = Node(
-    #         package='tf2_ros',
+    world_ned_odom_static_tf = Node(
+            package='tf2_ros',
+            executable='static_transform_publisher',
+            output='screen',
+            arguments=[
+                "--x", "0.0",
+                "--y", "0.0",
+                "--z", "0.0",
+                "--roll", "0.0",
+                "--pitch", "0",
+                "--yaw", "0.0",
+                "--frame-id", "ned",
+                "--child-frame-id", "odom"
+            ]
+        )
+    
+    # camera_robot_static_tf = Node(
+    #     condition=IfCondition(use_camera_tf),
+    #     package='tf2_ros',
     #         executable='static_transform_publisher',
     #         output='screen',
     #         arguments=[
     #             "--x", "0.0",
-    #             "--y", "0.0",
-    #             "--z", "0.0",
-    #             "--roll", "0.0",
-    #             "--pitch", "0",
+    #             "--y", "0.0.",
+    #             "--z", "-0.2",
+    #             "--roll", "-1.57",
+    #             "--pitch", "-1.57",
     #             "--yaw", "0.0",
-    #             "--frame-id", "ned",
-    #             "--child-frame-id", "odom"
-    #         ]
-    #     )
-    
+    #             "--frame-id", "camera",
+    #             "--child-frame-id", "base_link"]
+    # )
+
     camera_robot_static_tf = Node(
         condition=IfCondition(use_camera_tf),
         package='tf2_ros',
@@ -106,14 +122,15 @@ def generate_launch_description():
             output='screen',
             arguments=[
                 "--x", "0.0",
-                "--y", "0.0.",
-                "--z", "-0.2",
-                "--roll", "-1.57",
-                "--pitch", "-1.57",
-                "--yaw", "0.0",
+                "--y", "0.1147",
+                "--z", "-0.1638",
+                "--roll", "-0.0",
+                "--pitch", "-0.9599",
+                "--yaw", "-1.5708",
                 "--frame-id", "camera",
                 "--child-frame-id", "base_link"]
     )
+
     
     rviz_node = Node(
             package='rviz2',
@@ -138,7 +155,7 @@ def generate_launch_description():
         robot_state_publisher_node_bluerov2,
         robot_state_publisher_node_cirtesu,
         cirtesu_static_tf,
-        # world_ned_odom_static_tf,
+        world_ned_odom_static_tf,
         camera_robot_static_tf,
         rviz_node,
         robot_state_publisher_node_blackbox

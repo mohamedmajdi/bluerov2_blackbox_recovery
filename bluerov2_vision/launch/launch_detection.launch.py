@@ -13,4 +13,10 @@ def generate_launch_description():
             name='detection_node',
             output='screen'
         ),
+        Node(
+            package='bluerov2_vision',
+            executable='orientation',
+            name='orientation_node',
+            output='screen'
+        ),
     ])

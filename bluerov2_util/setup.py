@@ -29,6 +29,7 @@ setup(
     entry_points={
         'console_scripts': [
             'camera_info_publisher = bluerov2_util.CameraInfo:main',
+            'video2topic = bluerov2_util.video2topic:main',
         ],
     },
 )

@@ -122,54 +122,54 @@ class CameraPoseFromMarkers(Node):
         self.last_pos = cam_pos
         self.last_quat = cam_quat
 
-        static_translation = [0.0, 0.0, -0.2]
-        static_euler = [-1.57, -1.57, 0.0]  # roll, pitch, yaw
+        # static_translation = [0.0, 0.0, -0.2]
+        # static_euler = [-1.57, -1.57, 0.0]  # roll, pitch, yaw
 
-        # Convert euler  to quaternion
-        static_quat = quaternion_from_euler(static_euler[0], static_euler[1], static_euler[2])
+        # # Convert euler  to quaternion
+        # static_quat = quaternion_from_euler(static_euler[0], static_euler[1], static_euler[2])
 
-        # Create homogeneous transformation matrix
-        T_cam_bl = quaternion_matrix(static_quat)
-        T_cam_bl[:3, 3] = static_translation
+        # # Create homogeneous transformation matrix
+        # T_cam_bl = quaternion_matrix(static_quat)
+        # T_cam_bl[:3, 3] = static_translation
 
-        # Transform camera pose in NED to base_link
-        T_ned_bl = T_ned_cam @ T_cam_bl
+        # # Transform camera pose in NED to base_link
+        # T_ned_bl = T_ned_cam @ T_cam_bl
 
-        # Extract translation and rotation
-        base_pos = T_ned_bl[:3, 3]
-        base_quat = quaternion_from_matrix(T_ned_bl)
-        base_quat /= np.linalg.norm(base_quat)
+        # # Extract translation and rotation
+        # base_pos = T_ned_bl[:3, 3]
+        # base_quat = quaternion_from_matrix(T_ned_bl)
+        # base_quat /= np.linalg.norm(base_quat)
 
-        # try:
-        #     # Lookup camera -> base_link transform
-        #     t_cam_bl = self.tf_buffer.lookup_transform(
-        #         "base_link", "camera", rclpy.time.Time()
-        #     )
+        try:
+            # Lookup camera -> base_link transform
+            t_cam_bl = self.tf_buffer.lookup_transform(
+                "base_link", "camera", rclpy.time.Time()
+            )
 
-        #     # Convert to homogeneous matrix
-        #     T_cam_bl = quaternion_matrix([
-        #         t_cam_bl.transform.rotation.x,
-        #         t_cam_bl.transform.rotation.y,
-        #         t_cam_bl.transform.rotation.z,
-        #         t_cam_bl.transform.rotation.w
-        #     ])
-        #     T_cam_bl[:3, 3] = [
-        #         t_cam_bl.transform.translation.x,
-        #         t_cam_bl.transform.translation.y,
-        #         t_cam_bl.transform.translation.z
-        #     ]
+            # Convert to homogeneous matrix
+            T_cam_bl = quaternion_matrix([
+                t_cam_bl.transform.rotation.x,
+                t_cam_bl.transform.rotation.y,
+                t_cam_bl.transform.rotation.z,
+                t_cam_bl.transform.rotation.w
+            ])
+            T_cam_bl[:3, 3] = [
+                t_cam_bl.transform.translation.x,
+                t_cam_bl.transform.translation.y,
+                t_cam_bl.transform.translation.z
+            ]
 
-        #     # Transform camera pose in NED to base_link
-        #     T_ned_bl = T_ned_cam @ T_cam_bl
+            # Transform camera pose in NED to base_link
+            T_ned_bl = T_ned_cam @ T_cam_bl
 
-        #     # Extract translation and rotation
-        #     base_pos = T_ned_bl[:3, 3]
-        #     base_quat = quaternion_from_matrix(T_ned_bl)
-        #     base_quat /= np.linalg.norm(base_quat)
+            # Extract translation and rotation
+            base_pos = T_ned_bl[:3, 3]
+            base_quat = quaternion_from_matrix(T_ned_bl)
+            base_quat /= np.linalg.norm(base_quat)
 
-        # except Exception as e:
-        #     self.get_logger().warn(f"Camera->base_link TF lookup failed: {e}")
-        #     return
+        except Exception as e:
+            self.get_logger().warn(f"Camera->base_link TF lookup failed: {e}")
+            return
 
 
         pose_msg = PoseWithCovarianceStamped()
