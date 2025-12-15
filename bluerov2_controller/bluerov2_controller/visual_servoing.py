@@ -186,13 +186,14 @@ class VisionController(LifecycleNode):
         self.last_time = time.time()
 
         qos = QoSProfile(reliability=QoSReliabilityPolicy.RELIABLE, history=QoSHistoryPolicy.KEEP_LAST, depth=10)
+        qos2 = QoSProfile(reliability=QoSReliabilityPolicy.BEST_EFFORT, history=QoSHistoryPolicy.KEEP_LAST, depth=10)
         self.sub_image = self.create_subscription(Image,self.get_parameter('image_topic').value, self.image_callback, qos_profile=qos)
         self.sub_detect = self.create_subscription(Detection, self.get_parameter('detections_topic').value, self.color_video_tracking_callback, 10)
         self.depth_sub = self.create_subscription(
             Float64,
             "global_position/rel_alt",
             self.rel_alt_callback,
-            qos_profile=qos
+            qos_profile=qos2
         )
         self.sub_approaching = self.create_subscription(String, "visual_servoing/approaching", self.approaching_callback, 10)
 
@@ -602,7 +603,7 @@ class VisionController(LifecycleNode):
         width = np.abs(self.blackbox_xmax - self.blackbox_xmin)
         height = np.abs(self.blackbox_ymax - self.blackbox_ymin)
 
-        if width == 0 or height == 0:
+        if width == 0 or height == 0 and (self.box_lost_frames <=2 and not of_valid):
             # If we are here, it means YOLO is lost AND (frames <= 2 OR OF failed/disabled)
             self.get_logger().info("box not detected")
             self.z_integral = 0.0

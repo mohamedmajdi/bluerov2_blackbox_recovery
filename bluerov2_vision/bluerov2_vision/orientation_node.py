@@ -47,7 +47,7 @@ class BlackboxOrientationNode(Node):
 
 
 
-        
+        handle_orientation = "no_detection"
         
         self.get_logger().info("Blackbox Orientation Node initialized")
         self.get_logger().info(f"Ratio threshold: {self.ratio_threshold}")
